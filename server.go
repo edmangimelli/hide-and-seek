@@ -38,7 +38,7 @@ var mutex = sync.Mutex{}
 
 func main() {
 	http.HandleFunc("/socket", func(w http.ResponseWriter, r *http.Request) {
-		conn, _ := upgrader.Upgrade(w, r, nil) // error ignored for sake of simplicity
+		conn, _ := upgrader.Upgrade(w, r, nil)
 		connChan := make(chan string)
 		var code string // game that this connection is associated with
 		var name string // name that this connection is associated with
@@ -57,12 +57,12 @@ func main() {
 				case "join": // [1] code, [2] name
 					mutex.Lock() // LOCK
 					if _, exists := games[msg[1]]; !exists { // if game doesn't exist; error
-						writeMsg(conn, conn.RemoteAddr().String(), "error\nno such game")
+						sendMsg(conn, conn.RemoteAddr().String(), "error\nno such game")
 						break
 					}
 
 					if _, exists := games[msg[1]].players[msg[2]]; exists { // if name is already in use; error
-						writeMsg(conn, conn.RemoteAddr().String(), "error\nname is taken")
+						sendMsg(conn, conn.RemoteAddr().String(), "error\nname is taken")
 						break
 					}
 					code = msg[1]
@@ -77,12 +77,12 @@ func main() {
 					}
 
 					if games[code].started { // if game has already started
-						writeMsg(conn, name, "game is in session\nwill send message when next round starts")
+						sendMsg(conn, name, "game is in session\nwill send message when next round starts")
 						break
 					}
 
 					// game hasn't started
-					writeMsg(conn, name, "game hasn't started\nwill send messages as players join and when the first round starts")
+					sendMsg(conn, name, "game hasn't started\nwill send messages as players join and when the first round starts")
 
 					mutex.Unlock() // UNLOCK
 
@@ -93,7 +93,7 @@ func main() {
 					var err error
 					code, err = newGameCode() // make new game
 					if err != nil {
-						writeMsg(conn, conn.RemoteAddr().String(), "error\ntoo many games currently in session")
+						sendMsg(conn, conn.RemoteAddr().String(), "error\ntoo many games currently in session")
 						break
 					}
 
@@ -112,7 +112,7 @@ func main() {
 					mutex.Unlock() // UNLOCK
 					log.Printf("player added: %s\n", name)
 
-					writeMsg(conn, name, fmt.Sprintf("game initialized\n%s\nwill send messages as players join\nmust receive signal to start game", code))
+					sendMsg(conn, name, fmt.Sprintf("game initialized\n%s\nwill send messages as players join\nmust receive signal to start game", code))
 
 				case "start game":
 					mutex.Lock() // LOCK
@@ -134,7 +134,7 @@ func main() {
 
 			switch msg[0] { // most of these simply relay the msg to the client
 			case "joined", "game has started":
-				writeMsg(conn, name, rawMsg)
+				sendMsg(conn, name, rawMsg)
 			}
 		}
 	})
@@ -146,7 +146,7 @@ func main() {
 	http.ListenAndServe(":8080", nil)
 }
 
-func writeMsg(conn *websocket.Conn, name string, msg string) error {
+func sendMsg(conn *websocket.Conn, name string, msg string) error {
 	if err := conn.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
 		log.Println("conn.WriteMessage failed:\nconnection:\n%s\nmsg:\n%s\n", conn.RemoteAddr().String(), msg)
 		return err
