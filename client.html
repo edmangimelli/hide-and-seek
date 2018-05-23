@@ -5,6 +5,7 @@
 		body {text-align: center; font-size: 15px; font-family: sans-serif}
 		input {font-size: 15px; font-family: sans-serif;}
 		button {font-size: 15px; font-family: sans-serif;}
+		.bold {font-weight: bold}
 	</style>
 </head>
 <body>
@@ -26,31 +27,69 @@
 
 		switch (e.data) {
 		case "error\nno such game":
-			enterCode();
-			println("Can't find that game. 😕", "Is that the right code?");
+			enterCodeScreen();
+			printlns("Can't find that game. 😕", "Is that the right code?");
 			break
 		case "error\nname is taken":
 			mainScreen();
-			println("That name is taken. 😕", "Try a different name!);
+			printlns("That name is taken. 😕", "Try a different name!");
 			break
 		case "game is in session\nwill send message when next round starts":
-			println("You'll join at the next round!");
+			printlns("You'll join at the next round!");
 			break
 		case "game hasn't started\nwill send messages as players join and when the first round starts":
-			println("The seeker has not", "started the game yet.", "Hold tight!");
+			printlns("The seeker has not", "started the game yet.", "Hold tight!");
 			break
 		case "error\ntoo many games currently in session":
-			println("Whoa!", "The server can't handle", "any more games!", "Try again later", "or join a game.");
+			printlns("Whoa!", "The server can't handle", "any more games!", "Try again later", "or join a game.");
 			break
 		case "game has started":
 			gameScreen(); // this needs to be fixed (also we need much more in the message)
 			break
 		default:
 			e = e.data.split("\n")
-			if (e[0] == "error" && e[1] == "no such game") {
-				println();
+			if (e[0] == "game initialized") { //"game initialized\n%s\nwill send messages as players join\nmust receive signal to start game"
+				let name = document.getElementById("name").value
+				body.innerHTML = "";
+				printlns(
+					"You are the seeker!",
+					"Tell your friends to",
+				);
+				let elt = document.createElement("em");
+				elt.setAttribute("class", "bold");
+				elt.appendChild(document.createTextNode("join"));
+				body.appendChild(elt);
+				println(" your game");
+				print("using code: ");
+				elt = document.createElement("span");
+				elt.setAttribute("class", "bold");
+				elt.appendChild(document.createTextNode(e[1]));
+				body.appendChild(elt);
+				elt = document.createElement("p");
+				elt.appendChild(document.createTextNode("Joined:"));
+				elt.appendChild(document.createElement("br"));
+				elt.appendChild(document.createTextNode(name + " (you)"));
+				elt.appendChild(document.createElement("br"));
+				body.appendChild(elt);
+				printlns(
+					"Once everyone has",
+					"joined click start."
+				);
+				body.appendChild(document.createElement("br"));
+				elt = document.createElement("button")
+				elt.setAttribute("onclick", "start()")
+				elt.appendChild(document.createTextNode("Start"))
+				body.appendChild(elt)
+				body.appendChild(document.createElement("br"));
+				body.appendChild(document.createElement("br"));
+				printlns(
+					"People can join after",
+					"you start, but they'll",
+					"have to wait for the",
+					"current round to finish."
+				);
 			}
-			//"game initialized\n%s\nwill send messages as players join\nmust receive signal to start game"
+			//else if
 			//"joined\n%s"
 			break
 		}
@@ -78,14 +117,14 @@
 		body.appendChild(em)
 		body.appendChild(document.createElement("br"))
 		button = document.createElement("button")
-		button.setAttribute("onclick", "enterCode()")
+		button.setAttribute("onclick", "enterCodeScreen()")
 		button.appendChild(document.createTextNode("Join a Game"))
 		body.appendChild(button)
 		body.appendChild(document.createElement("br"))
 		body.appendChild(document.createElement("br"))
 	}
 	
-	function enterCode() {
+	function enterCodeScreen() {
 		let name = document.getElementById("name").value
 		let body = document.getElementsByTagName("body")[0];
 		body.innerHTML = "";
@@ -110,6 +149,10 @@
 		body.appendChild(document.createElement("br"))
 	}
 
+	function start() {
+		sendMsg("start");
+	}
+
 	function newGame() {
 		sendMsg("new game", document.getElementById("name").value);
 	}
@@ -127,12 +170,32 @@
 		console.log(msg)
 	}
 
-	function println() {
+	function printlns() {
 		let body = document.getElementsByTagName("body")[0];
 		for (let text of Array.from(arguments)) {
 			body.appendChild(document.createTextNode(text));
 			body.appendChild(document.createElement("br"));
 		}
 	}
+
+	function println() {
+		let body = document.getElementsByTagName("body")[0];
+		let args = Array.from(arguments)
+		for (let i = 0; i < args.length; i++) {
+			if (i > 0) {
+				body.appendChild(document.createElement(" "));
+			}
+			body.appendChild(document.createTextNode(args[i]));
+		}
+		body.appendChild(document.createElement("br"));
+	}
+
+	function print() {
+		let body = document.getElementsByTagName("body")[0];
+		for (let text of Array.from(arguments)) {
+			body.appendChild(document.createTextNode(text));
+		}
+	}
+
 </script>
 
