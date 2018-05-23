@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<script>
+	//var body = document.getElementsByTagName("body")[0];
+	var socket = new WebSocket("ws://localhost:8080/socket");
+
+	socket.onopen = function () {
+		console.log("connected.");
+	};
+
+	socket.onmessage = function (e) {
+		console.log("received message:")
+		console.log(e.data)
+
+		//if (e.data.slice(0,5) == "error") {
+	//		console.log(e.data)
+	//	}
+	};
+
+	function newGame() {
+		sendMsg("new game", document.getElementById("name").value);
+	}
+
+	function enterCode() {
+		let name = document.getElementById("name").value
+		let body = document.getElementsByTagName("body")[0];
+		body.innerHTML = "";
+		body.appendChild(document.createTextNode("code: "))
+		let input = document.createElement("input")
+		input.setAttribute("id", "code")
+		input.setAttribute("style", "width: 150px;")
+		input.setAttribute("maxlength", "4")
+		body.appendChild(input)	
+		input = document.createElement("input")
+		input.setAttribute("id", "name")
+		input.setAttribute("type", "hidden")
+		input.setAttribute("value", name)
+		body.appendChild(input)	
+		body.appendChild(document.createElement("br"))
+		body.appendChild(document.createElement("br"))
+		let button = document.createElement("button")
+		button.setAttribute("onclick", "joinGame()")
+		button.appendChild(document.createTextNode("join"))
+		body.appendChild(button)
+	}
+
+	function joinGame() {
+		sendMsg("join",
+			document.getElementById("code").value,
+			document.getElementById("name").value)
+	}
+
+	function sendMsg() {
+		let msg = Array.from(arguments).join("\n")
+		socket.send(msg)
+		console.log("message sent:")
+		console.log(msg)
+	}
+</script>
+
+<head>
+	<meta charset="utf-8">
+	<style>
+		body {text-align: center; font-size: 15px; font-family: sans-serif}
+		input {font-size: 15px; font-family: sans-serif;}
+		button {font-size: 15px; font-family: sans-serif;}
+	</style>
+</head>
+<body>
+	name: <input id="name" style="width: 150px;" maxlength=31><br><!--John Jacob Jingleheimer Schmidt-->
+	<br>
+	<button onclick="newGame()">Start New Game</button><br>
+	<em>or</em><br>
+	<button onclick="enterCode()">Join a Game</button><br>
+</body>
+
+<!--
+
+new game
+name
+
+	ok|error
+
+join game
+name=Ed
+code=DERP
+
+-->
