@@ -17,10 +17,12 @@ type player struct {
 	connChan chan string
 	numberOfTimesHasBeenSeeker int
 	numberOfTimesHasBeenHider int
+	numberOfTreesChopped int
+	numberOfHidingSpotChanges int
 }
 
 type game struct {
-	grid string
+	wood forest
    players map[string]*player
 	started bool // false = seeker hasn't started the game
 	seekerIsSeeking bool // false = players are hiding
@@ -58,16 +60,18 @@ func main() {
 					mutex.Lock() // LOCK
 					if _, exists := games[msg[1]]; !exists { // if game doesn't exist; error
 						sendMsg(conn, conn.RemoteAddr().String(), "error\nno such game")
+						mutex.Unlock()
 						break
 					}
 
 					if _, exists := games[msg[1]].players[msg[2]]; exists { // if name is already in use; error
 						sendMsg(conn, conn.RemoteAddr().String(), "error\nname is taken")
+						mutex.Unlock()
 						break
 					}
 					code = msg[1]
 					name = msg[2]
-					games[code].players[name] = &player{x: 0, y: 0, waitingToJoin: games[code].started, connChan: connChan}
+					games[code].players[name] = &player{waitingToJoin: games[code].started, connChan: connChan}
 					// player has joined
 
 					for n, v := range games[code].players { // tell other players
@@ -76,8 +80,10 @@ func main() {
 						}
 					}
 
+					// NEED TO SEND CURRENT PLAYERS LIST TO CLIENT
 					if games[code].started { // if game has already started
 						sendMsg(conn, name, "game is in session\nwill send message when next round starts")
+						mutex.Unlock()
 						break
 					}
 
@@ -99,14 +105,12 @@ func main() {
 
 					mutex.Lock() // LOCK
 					games[code] = &game{ // initialize
-						grid: "",
 						players: make(map[string]*player),
 					}
 					log.Printf("new game created: %s\n", code)
 
 					games[code].players[name] = &player{ // add seeker to list of players
 						seeker: true,
-						x: 0, y: 0,
 						connChan: connChan,
 					}
 					mutex.Unlock() // UNLOCK
@@ -114,11 +118,33 @@ func main() {
 
 					sendMsg(conn, name, fmt.Sprintf("game initialized\n%s\nwill send messages as players join\nmust receive signal to start game", code))
 
-				case "start game":
+				case "start":
+					/*
+can we start? at least 2 players
+started = true
+create a forest
+give a UNIQUE random location to every player
+send to every player
+game has started
+hiders hiding
+player loc
+player loc
+player loc
+.
+html table
+					*/
 					mutex.Lock() // LOCK
+					if len(games[code].players) < 2 {
+						// error
+						mutex.Unlock()
+						break
+					}
 					games[code].started = true
+					games[code].wood = growForest(games[code].players)
+					populateForest(games[code])
+
 					for n, v := range games[code].players { // tell other players
-						if n != name { // don't need to send the message to yourself
+						if n != name { // NOT TRUEdon't need to send the message to yourself
 							v.connChan <- "game has started"
 						}
 					}
