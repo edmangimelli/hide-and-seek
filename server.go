@@ -142,6 +142,9 @@ html table
 					games[code].started = true
 					games[code].wood = growForest(games[code].players)
 					populateForest(games[code])
+					for _, s := range games[code].wood {
+						fmt.Println(string(s))
+					}
 
 					for n, v := range games[code].players { // tell other players
 						if n != name { // NOT TRUEdon't need to send the message to yourself

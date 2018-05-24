@@ -23,7 +23,7 @@ easterEgg:
 	}
 
 	totalTrees := len(players) * treesPerPlayer
-	perRow := treesPerRow(len(players))
+	perRow := treesPerRow(totalTrees)
 	rows := totalTrees/perRow
 	if rows*perRow < totalTrees { rows++ } // we might end up with too many trees
 	treesToRemove := rows*perRow - totalTrees
@@ -113,9 +113,10 @@ randomCoord:
 		for {
 			x = random.Intn(width)
 			y = random.Intn(height)
+
 			if g.wood[y][x] == rune(' ') { continue }
 			for m := range g.players { // technically you're comparing against yourself, but it doesn't matter
-				if g.players[n].x == g.players[m].x && g.players[n].y == g.players[m].y {
+				if x == g.players[m].x && y == g.players[m].y {
 					continue randomCoord
 				}
 			}
