@@ -119,10 +119,10 @@ randomCoord:
 					continue randomCoord
 				}
 			}
+			break
 		}
 		g.players[n].x = x
 		g.players[n].y = y
 	}
-	break
 }
 
