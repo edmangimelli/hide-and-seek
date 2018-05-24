@@ -23,7 +23,7 @@ type player struct {
 
 type game struct {
 	wood forest
-   players map[string]*player
+	players map[string]*player
 	started bool // false = seeker hasn't started the game
 	seekerIsSeeking bool // false = players are hiding
 	round int
