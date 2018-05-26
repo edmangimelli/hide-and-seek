@@ -1,206 +1,354 @@
 <!DOCTYPE html>
+<!-- Ed Mangimelli 2018 -->
 <head>
 	<meta charset="utf-8">
 	<style>
 		body {text-align: center; font-size: 15px; font-family: sans-serif}
-		input {font-size: 15px; font-family: sans-serif;}
+		input {width: 150px; font-size: 15px; font-family: sans-serif;}
 		button {font-size: 15px; font-family: sans-serif;}
 		.bold {font-weight: bold}
 	</style>
 </head>
 <body>
+	<div id="messageArea"></div>
+	<div id="forestArea"></div>
 </body>
 <script>
-	mainScreen();
 
-	var socket = new WebSocket("ws://localhost:8080/socket");
-
-	socket.onopen = function () {
-		console.log("connected.");
-	};
-
-	socket.onmessage = function (e) {
-		console.log("received message:")
-		console.log(e.data)
-
-		let body = document.getElementsByTagName("body")[0];
-
-		switch (e.data) {
-		case "error\nno such game":
-			enterCodeScreen();
-			printlns("Can't find that game. 😕", "Is that the right code?");
-			break
-		case "error\nname is taken":
-			mainScreen();
-			printlns("That name is taken. 😕", "Try a different name!");
-			break
-		case "game is in session\nwill send message when next round starts":
-			printlns("You'll join at the next round!");
-			break
-		case "game hasn't started\nwill send messages as players join and when the first round starts":
-			printlns("The seeker has not", "started the game yet.", "Hold tight!");
-			break
-		case "error\ntoo many games currently in session":
-			printlns("Whoa!", "The server can't handle", "any more games!", "Try again later", "or join a game.");
-			break
-		case "game has started":
-			gameScreen(); // this needs to be fixed (also we need much more in the message)
-			break
-		default:
-			e = e.data.split("\n")
-			if (e[0] == "game initialized") { //"game initialized\n%s\nwill send messages as players join\nmust receive signal to start game"
-				seekerWaitingForPlayersScreen(e[1]);
-			}
-			//else if
-			//"joined\n%s"
-			break
-		}
-	};
-
-
-	function mainScreen() {
-		let body = document.getElementsByTagName("body")[0];
-		body.innerHTML = "";
-		body.appendChild(document.createTextNode("name: "))
-		let input = document.createElement("input")
-		input.setAttribute("id", "name")
-		input.setAttribute("style", "width: 150px;")
-		input.setAttribute("maxlength", "31")
-		body.appendChild(input)
-		body.appendChild(document.createElement("br"))
-		body.appendChild(document.createElement("br"))
-		let button = document.createElement("button")
-		button.setAttribute("onclick", "newGame()")
-		button.appendChild(document.createTextNode("Start New Game"))
-		body.appendChild(button)
-		body.appendChild(document.createElement("br"))
-		let em = document.createElement("em")
-		em.appendChild(document.createTextNode("or"))
-		body.appendChild(em)
-		body.appendChild(document.createElement("br"))
-		button = document.createElement("button")
-		button.setAttribute("onclick", "enterCodeScreen()")
-		button.appendChild(document.createTextNode("Join a Game"))
-		body.appendChild(button)
-		body.appendChild(document.createElement("br"))
-		body.appendChild(document.createElement("br"))
-	}
+let messageArea = document.getElementById("messageArea"),
+    forestArea = document.getElementById("forestArea"),
+    seeker = false,
+    started = false,
+    name = "",
+    emoji = "",
+    code = "",
+    forest = [], // holds a copy of the forest for redrawing
+    socket = new WebSocket("ws://localhost:8080/socket");
 	
-	function enterCodeScreen() {
-		let name = document.getElementById("name").value
-		let body = document.getElementsByTagName("body")[0];
-		body.innerHTML = "";
-		body.appendChild(document.createTextNode("code: "))
-		let input = document.createElement("input")
-		input.setAttribute("id", "code")
-		input.setAttribute("style", "width: 150px;")
-		input.setAttribute("maxlength", "4")
-		body.appendChild(input)
-		input = document.createElement("input")
-		input.setAttribute("id", "name")
-		input.setAttribute("type", "hidden")
-		input.setAttribute("value", name)
-		body.appendChild(input)
-		body.appendChild(document.createElement("br"))
-		body.appendChild(document.createElement("br"))
-		let button = document.createElement("button")
-		button.setAttribute("onclick", "joinGame()")
-		button.appendChild(document.createTextNode("join"))
-		body.appendChild(button)
-		body.appendChild(document.createElement("br"))
-		body.appendChild(document.createElement("br"))
-	}
 
-	function seekerWaitingForPlayersScreen(code) {
-		let name = document.getElementById("name").value;
-		let body = document.getElementsByTagName("body")[0];
-		body.innerHTML = "";
-		printlns(
-			"You are the seeker!",
-			"Tell your friends to",
-		);
-		let elt = document.createElement("em");
-		elt.setAttribute("class", "bold");
-		elt.appendChild(document.createTextNode("join"));
-		body.appendChild(elt);
-		println(" your game");
-		print("using code: ");
-		elt = document.createElement("span");
-		elt.setAttribute("class", "bold");
-		elt.appendChild(document.createTextNode(code));
-		body.appendChild(elt);
-		elt = document.createElement("p");
-		elt.appendChild(document.createTextNode("Joined:"));
-		elt.appendChild(document.createElement("br"));
-		elt.appendChild(document.createTextNode(name + " (you)"));
-		elt.appendChild(document.createElement("br"));
-		body.appendChild(elt);
-		printlns(
-			"Once everyone has",
-			"joined click start."
-		);
-		body.appendChild(document.createElement("br"));
-		elt = document.createElement("button")
-		elt.setAttribute("onclick", "start()")
-		elt.appendChild(document.createTextNode("Start"))
-		body.appendChild(elt)
-		body.appendChild(document.createElement("br"));
-		body.appendChild(document.createElement("br"));
-		printlns(
-			"People can join after",
-			"you start, but they'll",
-			"have to wait for the",
-			"current round to finish."
-		);
-	}
+socket.onopen = function () {
+	console.log("connected.");
+};
 
-	function start() {
-		sendMsg("start");
-	}
+socket.onmessage = function (e) {
+	console.log("received message:")
+	console.log(e.data)
 
-	function newGame() {
-		sendMsg("new game", document.getElementById("name").value);
-	}
 
-	function joinGame() {
-		sendMsg("join",
-			document.getElementById("code").value,
-			document.getElementById("name").value)
-	}
-
-	function sendMsg() {
-		let msg = Array.from(arguments).join("\n")
-		socket.send(msg)
-		console.log("message sent:")
-		console.log(msg)
-	}
-
-	function printlns() {
-		let body = document.getElementsByTagName("body")[0];
-		for (let text of Array.from(arguments)) {
-			body.appendChild(document.createTextNode(text));
-			body.appendChild(document.createElement("br"));
+	e = e.data.split("\n")
+	switch (e[0]) { // 15 message types can be received:
+	case "found": // emoji // name
+		break
+	case "game initialized": // code // name
+		code = e[1];
+		name = e[2];
+		seekerWaitingForPlayersScreen();
+		break
+	case "go!":
+		break
+	case "joined": // emoji // name
+		if started {
+			break;
 		}
-	}
+		addToJoinedList(e[1], e[2]);
+		break;
+	case "left": // emoji // name
+		if started {
+			break;
+		}
+		removeFromJoinedList(e[1]);
+		break;
+	case "moved": // emoji // col // row
+		// oldPosition = position
+		// update position
+		// redraw(emoji,new,from)
+		// if it's you
+		// and your seeker
+		//  make all spots around you searchable
+		//  make prevous spot = "" and remove its class searchable
+		// you hider
+		//   using previous position
+		//     remove class "occupiable" from adjacent
+		//   apply occupiable to all adjacent spots
+		break
+	case "name is taken":
+		name = "";
+		mainScreen();
+		printlns(messageArea, "That name is taken. 😕", "Try a different name!");
+		break
+	case "no such game":
+		code = "";
+		enterCodeScreen();
+		printlns(messageArea, "Can't find that game. 😕", "Is that the right code?");
+		break
+	case "setup": // ! variable length message
+		started = true;
+		let myInfo = e[1].split(" ");
+		emoji = myInfo[0];
+		col = myInfo[1];
+		row = myInfo[2];
 
-	function println() {
-		let body = document.getElementsByTagName("body")[0];
-		let args = Array.from(arguments)
-		for (let i = 0; i < args.length; i++) {
-			if (i > 0) {
-				body.appendChild(document.createElement(" "));
+		let players = [],
+		    len = e.length,
+		    i = 2;
+
+		for (; i < len; i++) {
+			let words = e[i].split(" ");	
+			if words[0] === "forest" {
+				break;
 			}
-			body.appendChild(document.createTextNode(args[i]));
+			players.push({emoji: words[0], col: words[1], row: words[2]});
 		}
-		body.appendChild(document.createElement("br"));
+
+		makeForest(Number(e[i+1]), e[i+2]);
+
+		for (let p of players) {
+			document.getElementById(`${p.col} ${p.row}`).innerHTML = p.emoji;
+		}
+		
+		break;
+	case "too few hiders":
+		break;
+	case "too many games in session":
+		messageArea.innerHTML = "";
+		printlns(messageArea, "Whoa!", "The server can't handle", "any more games!", "Try again later", "or join a game.");
+		break;
+	case "wait for next round": // code // yourEmoji // yourName // everyone else
+		code = e[1];
+		emoji = e[2];
+		name = e[3];
+		messageArea.innerHTML = `
+
+		You'll join at<br>
+		the next round!
+		<p id="joined">
+		Joined:<br>
+		<div id="${emoji}">${emoji} ${name} (you)</div>
+		</p>
+
+		`;
+		addToJoinedList(...e.slice(4,));
+		break;
+	case "wait for start": // code // yourEmoji // yourName // everyone else
+		code = e[1];
+		emoji = e[2];
+		name = e[3];
+		messageArea.innerHTML = `
+
+		The seeker has not<br>
+		started the game yet.<br>
+		Hold Tight!
+		<p id="joined">
+		Joined:<br>
+		<div id="${emoji}">${emoji} ${name} (you)</div>
+		</p>
+
+		`;
+		addToJoinedList(...e.slice(4,));
+		break;
+	case "winner": // emoji // name
+		break;
+	case "seeker left; new seeker": // emoji // name
+		break;
+	default:
+		// UNKNOWN MESSAGE
+	}
+};
+
+
+mainScreen();
+
+function mainScreen() {
+	messageArea.innerHTML = `
+
+	name: <input id="name" maxlength="31"><br>
+	<br>
+	<button id="Start New Game">Start New Game</button><br>
+	<em>or</em><br>
+	<button id="Join a Game">Join a Game</button><br> 
+	<br>
+
+	`;
+	document.getElementById("Start New Game").addEventListener("click", newGame);
+	document.getElementById("Join a Game").addEventListener("click", enterCodeScreen);
+}
+
+function newGame() {
+	seeker = true;
+	sendMsg("new game", document.getElementById("name").value);
+}
+
+function enterCodeScreen() {
+	name = document.getElementById("name").value;
+	messageArea.innerHTML = `
+
+	code: <input id="code" maxlength="4"><br>
+	<br>
+	<button id="join">join</button><br>
+	<br>
+
+	`;
+	document.getElementById("join").addEventListener("click", joinGame);
+}
+
+function joinGame() {
+	sendMsg("join", document.getElementById("code").value, name);
+}
+
+function seekerWaitingForPlayersScreen() {
+	messageArea.innerHTML = `
+
+	You are the seeker!<br>
+	Tell your friends to<br>
+	<em class="bold">join</em> your game<br>
+	using code: <span class="bold">${code}</span>
+	<p id="joined">
+	Joined:<br>
+	${name} (you)<br>
+	</p>
+	Once everyone has<br>
+	joined click start.<br>
+	<button id="start">Start</button><br>
+	<br>
+	<br>
+	People can join after<br>
+	you start, but they'll<br>
+	have to wait for the<br>
+	current round to finish.<br>
+
+	`;
+	document.getElementById("start").addEventListener("click", start);
+}
+
+function start() {
+	sendMsg("start");
+}
+
+
+function sendMsg() {
+	let msg = Array.from(arguments).join("\n")
+	socket.send(msg)
+	console.log("message sent:")
+	console.log(msg)
+}
+
+function printlns() {
+	args = Array.from(arguments);
+	len = args.length;
+	for (let i = 1; i < len; i++) {
+		arg[0].appendChild(document.createTextNode(arg[i]));
+		arg[0].appendChild(document.createElement("br"));
+	}
+}
+
+/*
+function println() {
+	let body = document.getElementsByTagName("body")[0];
+	let args = Array.from(arguments)
+	for (let i = 0; i < args.length; i++) {
+		if (i > 0) {
+			body.appendChild(document.createElement(" "));
+		}
+		body.appendChild(document.createTextNode(args[i]));
+	}
+	body.appendChild(document.createElement("br"));
+}
+
+function print() {
+	let body = document.getElementsByTagName("body")[0];
+	for (let text of Array.from(arguments)) {
+		body.appendChild(document.createTextNode(text));
+	}
+}
+*/
+
+function hiderMove(event) {
+	id = event.target.id.split(" ");
+	c = Number(id[0]);
+	r = Number(id[1]);
+
+	if (c > col+1 || c < col-1 || r > row+1 || r < row-1) {
+		return // can only move to adjacent areas
 	}
 
-	function print() {
-		let body = document.getElementsByTagName("body")[0];
-		for (let text of Array.from(arguments)) {
-			body.appendChild(document.createTextNode(text));
+	classes = ;
+
+	if !hasClass("tree", event.target.className.split(" ")) {
+		return // cannot move to empty spaces
+	}
+
+	if event.target.innerHTML !== "" {
+		return // cannot move into occupied spots
+	}
+
+	sendMsg(`move to\n${c}\n${r}`);
+}
+
+function seekerMove(event) {
+	if !hasClass("searchable", event.target.className.split(" ")) {
+		return; // cannot move to empty spaces
+	}
+	id = event.target.id.split(" ");
+	sendMsg(`move to\n${id[0]}\n${id[1]}`);
+	return;
+}
+
+function hasClass(class, classes) {
+	for (c of classes) {
+		if c === class {
+			return true;
 		}
 	}
+	return false;
+}
+
+function makeForest(treesPerRow, trees) {
+	trees = Array.from(trees);
+
+	let col = 0,
+	    t = 0,
+	    len = trees.length,
+	    table = document.createElement("table");
+
+	while (t < len) {
+		let tr = document.createElement("tr"); // building forest html table
+		let treeLine = []; // building forest array
+		for (let row=0; row < treesPerRow; row++) {
+			let td = document.createElement("td");
+			td.setAttribute("id", `${row} ${col}`);
+			td.appendChild(document.createTextNode(trees[t]));
+			if (seeker) {
+				td.addEventListener("click", seekerMove);
+			} else {
+				td.addEventListener("click", hiderMove);
+			}
+			tr.appendChild(td);
+			treeLine.push(trees[t]);
+			t++;
+		}
+		table.appendChild(tr);
+		forest.push(treeLine);
+		col++;
+	}
+
+	forestArea.appendChild(table);
+}
+
+function addToJoinedList(emoji, name) {
+	joinedList = document.getElementById("joined");
+	for (let i = 0; i < arguments.length; i+=2) {
+		let emoji = arguments[i];
+		let name = arguments[i+1];
+		div = document.createElement("div");
+		div.setAttribute("id", emoji);
+		div.appendChild(document.createTextNode(`${emoji} ${name}`));
+		joinedList.appendChild(div);
+	}
+}
+
+function removeFromJoinedList(emoji) {
+	document.getElementById("joined").removeChild(document.getElementById(emoji));
+}
 
 </script>
 

@@ -25,8 +25,9 @@ type game struct {
 	wood forest
 	players map[string]*player
 	started bool // false = seeker hasn't started the game
-	seekerIsSeeking bool // false = players are hiding
 	round int
+	usedEmojis [][]bool
+	santaInUse bool
 }
 
 var games = make(map[string]*game, 0)
@@ -41,9 +42,13 @@ var mutex = sync.Mutex{}
 func main() {
 	http.HandleFunc("/socket", func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := upgrader.Upgrade(w, r, nil)
+
+		// conn.SetCloseHandler(func())
+
 		connChan := make(chan string)
 		var code string // game that this connection is associated with
 		var name string // name that this connection is associated with
+		var emoji rune
 
 		go func () { // *** Receive messages from client (external)
 			for {
@@ -54,52 +59,60 @@ func main() {
 				log.Printf("message received:\n%s", string(rawMsg))
 				msg := strings.Split(string(rawMsg), "\n")
 
-				switch msg[0] {
+				switch msg[0] { // 6 message types can be received:
 
-				case "join": // [1] code, [2] name
+				case "join": // code // name
 					mutex.Lock() // LOCK
 					if _, exists := games[msg[1]]; !exists { // if game doesn't exist; error
-						sendMsg(conn, conn.RemoteAddr().String(), "error\nno such game")
+						sendMsg(conn, conn.RemoteAddr().String(), "no such game")
 						mutex.Unlock()
 						break
 					}
 
 					if _, exists := games[msg[1]].players[msg[2]]; exists { // if name is already in use; error
-						sendMsg(conn, conn.RemoteAddr().String(), "error\nname is taken")
+						sendMsg(conn, conn.RemoteAddr().String(), "name is taken")
 						mutex.Unlock()
 						break
 					}
 					code = msg[1]
 					name = msg[2]
 					games[code].players[name] = &player{waitingToJoin: games[code].started, connChan: connChan}
+					emoji = randomEmoji(games[code], name)
+					games[code].players[name].emoji = emoji
 					// player has joined
 
 					for n, v := range games[code].players { // tell other players
 						if n != name { // don't need to send the message to yourself
-							v.connChan <- fmt.Sprintf("joined\n%s", name)
+							v.connChan <- fmt.Sprintf("joined\n%s\n%s", emoji, name)
 						}
 					}
 
-					// NEED TO SEND CURRENT PLAYERS LIST TO CLIENT
+					var msg string
 					if games[code].started { // if game has already started
-						sendMsg(conn, name, "game is in session\nwill send message when next round starts")
-						mutex.Unlock()
-						break
+						msg = "wait for next round"
+					} else {
+						msg = "wait for start"
+					}
+					msg += fmt.Sprintf("\n%s\n%s\n%s", code, emoji, name)
+					for p := range games[code].players {
+						if p.name != name {
+							msg += fmt.Sprinf("\n%s\n%s", p.emoji, p.name)
+						}
 					}
 
-					// game hasn't started
-					sendMsg(conn, name, "game hasn't started\nwill send messages as players join and when the first round starts")
+					sendMsg(conn, name, msg)
 
 					mutex.Unlock() // UNLOCK
 
-				case "new game":
+				case "move to": // col // row
+				case "new game": // name
 					name = msg[1]
 
 					log.Println("try to make new game.")
 					var err error
 					code, err = newGameCode() // make new game
 					if err != nil {
-						sendMsg(conn, conn.RemoteAddr().String(), "error\ntoo many games currently in session")
+						sendMsg(conn, conn.RemoteAddr().String(), "too many games in session")
 						break
 					}
 
@@ -113,11 +126,21 @@ func main() {
 						seeker: true,
 						connChan: connChan,
 					}
+
+					games[code].usedEmojis :=  make([][]bool, len(emojis))
+					for i := range games[code].usedEmojis {
+						games[code].usedEmojis[i] := make([]bool, len(emojis[i])
+					}
+					emoji = randomEmoji(games[code], name)
+					games[code].players[name].emoji = emoji
+
 					mutex.Unlock() // UNLOCK
 					log.Printf("player added: %s\n", name)
 
-					sendMsg(conn, name, fmt.Sprintf("game initialized\n%s\nwill send messages as players join\nmust receive signal to start game", code))
+					sendMsg(conn, name, fmt.Sprintf("game initialized\n%s\n%s\n%s", code, emoji, name))
 
+				case "ready":
+				case "ready for next round":
 				case "start":
 					/*
 can we start? at least 2 players
@@ -125,13 +148,31 @@ started = true
 create a forest
 give a UNIQUE random location to every player
 send to every player
-game has started
-hiders hiding
-player loc
-player loc
-player loc
-.
-html table
+
+positions
+ed
+3
+4
+bri
+4
+4
+
+forest
+....
+....
+....
+....
+
+
+got forest
+
+got positions
+
+go!
+
+
+
+
 					*/
 					mutex.Lock() // LOCK
 					if len(games[code].players) < 2 {
@@ -145,6 +186,9 @@ html table
 					for _, s := range games[code].wood {
 						fmt.Println(string(s))
 					}
+					for n, p := range games[code].players {
+						fmt.Printf("%s (%d, %d)", n, p.x, p.y)
+					}
 
 					for n, v := range games[code].players { // tell other players
 						if n != name { // NOT TRUEdon't need to send the message to yourself
@@ -152,7 +196,8 @@ html table
 						}
 					}
 					mutex.Unlock() // UNLOCK
-				}
+
+				} // switch end
 			}
 		}()
 

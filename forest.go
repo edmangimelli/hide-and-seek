@@ -1,19 +1,20 @@
 package main
 
 import "strings"
+import "fmt"
 
 type forest [][]rune
 
 const treesPerPlayer = 4 // so not exactly a 25% chance of getting found (4 trees for the seeker too)
 
 func growForest(players map[string]*player) forest {
-	var trees = []rune("🌲🌳🌴🌵")
+	//var trees = []rune("🌲🌳🌴🌵")
+	var trees = []rune("🌲")
 
 easterEgg:
 	for n := range players { // santa trumps any request to play indoors
 		name := strings.ToLower(n)
-		switch name {
-		case "santa", "santa claus", "father christmas", "father xmas", "saint nicholas", "st. nicholas", "saint nick", "st. nick", "kris kringle", "kringle":
+		if isSanta(name) {
 			trees = []rune("🎄")
 			break easterEgg
 		}
@@ -100,6 +101,7 @@ func main() {
 
 func populateForest(g *game) {
 	for n := range g.players {
+fmt.Printf("setting %s's location to (-1, -1)", n)
 		g.players[n].x = -1
 		g.players[n].y = -1
 	}
