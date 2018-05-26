@@ -39,21 +39,22 @@ socket.onmessage = function (e) {
 	switch (e[0]) { // 15 message types can be received:
 	case "found": // emoji // name
 		break
-	case "game initialized": // code // name
+	case "game initialized": // code // emoji // name
 		code = e[1];
-		name = e[2];
+		emoji = e[2];
+		name = e[3];
 		seekerWaitingForPlayersScreen();
-		break
+		break;
 	case "go!":
-		break
+		break;
 	case "joined": // emoji // name
-		if started {
+		if (started) {
 			break;
 		}
 		addToJoinedList(e[1], e[2]);
 		break;
 	case "left": // emoji // name
-		if started {
+		if (started) {
 			break;
 		}
 		removeFromJoinedList(e[1]);
@@ -83,21 +84,20 @@ socket.onmessage = function (e) {
 		break
 	case "setup": // ! variable length message
 		started = true;
-		let myInfo = e[1].split(" ");
-		emoji = myInfo[0];
-		col = myInfo[1];
-		row = myInfo[2];
 
 		let players = [],
-		    len = e.length,
-		    i = 2;
+		    len = e.length;
 
-		for (; i < len; i++) {
+		for (let i = 1; i < len; i++) {
 			let words = e[i].split(" ");	
-			if words[0] === "forest" {
+			if (words[0] === "forest") {
 				break;
 			}
 			players.push({emoji: words[0], col: words[1], row: words[2]});
+			if (words[0] === emoji) {
+				col = words[1];
+				row = words[2];
+			}
 		}
 
 		makeForest(Number(e[i+1]), e[i+2]);
@@ -108,6 +108,8 @@ socket.onmessage = function (e) {
 		
 		break;
 	case "too few hiders":
+		// this can be in the middle of a game
+		// or when the seeker presses start
 		break;
 	case "too many games in session":
 		messageArea.innerHTML = "";
@@ -271,13 +273,11 @@ function hiderMove(event) {
 		return // can only move to adjacent areas
 	}
 
-	classes = ;
-
-	if !hasClass("tree", event.target.className.split(" ")) {
+	if (!hasClass("tree", event.target.className.split(" "))) {
 		return // cannot move to empty spaces
 	}
 
-	if event.target.innerHTML !== "" {
+	if (event.target.innerHTML !== "") {
 		return // cannot move into occupied spots
 	}
 
@@ -285,7 +285,7 @@ function hiderMove(event) {
 }
 
 function seekerMove(event) {
-	if !hasClass("searchable", event.target.className.split(" ")) {
+	if (!hasClass("searchable", event.target.className.split(" "))) {
 		return; // cannot move to empty spaces
 	}
 	id = event.target.id.split(" ");
@@ -293,9 +293,9 @@ function seekerMove(event) {
 	return;
 }
 
-function hasClass(class, classes) {
+function hasClass(clas, classes) {
 	for (c of classes) {
-		if c === class {
+		if (c === clas) {
 			return true;
 		}
 	}

@@ -1,7 +1,6 @@
 package main
 
 import "strings"
-import "fmt"
 
 type forest [][]rune
 
@@ -101,31 +100,30 @@ func main() {
 
 func populateForest(g *game) {
 	for n := range g.players {
-fmt.Printf("setting %s's location to (-1, -1)", n)
-		g.players[n].x = -1
-		g.players[n].y = -1
+		g.players[n].col = -1
+		g.players[n].row = -1
 	}
 
 	height := len(g.wood)
 	width := len(g.wood[0])
 
 	for n := range g.players {
-		var x, y int
+		var col, row int
 randomCoord:
 		for {
-			x = random.Intn(width)
-			y = random.Intn(height)
+			col = random.Intn(width)
+			row = random.Intn(height)
 
-			if g.wood[y][x] == rune(' ') { continue }
+			if g.wood[row][col] == ' ' { continue }
 			for m := range g.players { // technically you're comparing against yourself, but it doesn't matter
-				if x == g.players[m].x && y == g.players[m].y {
+				if col == g.players[m].col && row == g.players[m].row {
 					continue randomCoord
 				}
 			}
 			break
 		}
-		g.players[n].x = x
-		g.players[n].y = y
+		g.players[n].col = col
+		g.players[n].row = row
 	}
 }
 

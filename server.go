@@ -3,16 +3,26 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
+var random *rand.Rand
+func init() {
+   source := rand.NewSource(time.Now().UnixNano())
+   random = rand.New(source)
+   log.Println("There are", maxCodes, "possible game codes.")
+}
+
 type player struct {
+	emoji rune
 	seeker bool
-   x, y int
+	col, row int
 	waitingToJoin bool
 	connChan chan string
 	numberOfTimesHasBeenSeeker int
@@ -44,10 +54,10 @@ func main() {
 		conn, _ := upgrader.Upgrade(w, r, nil)
 
 		// conn.SetCloseHandler(func())
+		// delete(games[code].players, player)
 
 		connChan := make(chan string)
-		var code string // game that this connection is associated with
-		var name string // name that this connection is associated with
+		var code, name string
 		var emoji rune
 
 		go func () { // *** Receive messages from client (external)
@@ -56,30 +66,35 @@ func main() {
 				if err != nil {
 					return
 				}
-				log.Printf("message received:\n%s", string(rawMsg))
+				log.Printf("\nmessage received:\n%s\n", string(rawMsg))
 				msg := strings.Split(string(rawMsg), "\n")
 
 				switch msg[0] { // 6 message types can be received:
 
 				case "join": // code // name
-					mutex.Lock() // LOCK
-					if _, exists := games[msg[1]]; !exists { // if game doesn't exist; error
-						sendMsg(conn, conn.RemoteAddr().String(), "no such game")
+					mutex.Lock()
+
+					if _, exists := games[msg[1]]; !exists {
+						sendMsg(conn, fmt.Sprintf("(!provided:) %s", msg[1]), fmt.Sprintf("(!provided:) %s", msg[2]), "no such game")
 						mutex.Unlock()
 						break
 					}
 
-					if _, exists := games[msg[1]].players[msg[2]]; exists { // if name is already in use; error
-						sendMsg(conn, conn.RemoteAddr().String(), "name is taken")
+					if _, exists := games[msg[1]].players[msg[2]]; exists {
+						sendMsg(conn, fmt.Sprintf("(!provided:) %s", msg[1]), fmt.Sprintf("(!provided:) %s", msg[2]), "name is taken")
 						mutex.Unlock()
 						break
 					}
+
 					code = msg[1]
 					name = msg[2]
-					games[code].players[name] = &player{waitingToJoin: games[code].started, connChan: connChan}
 					emoji = randomEmoji(games[code], name)
-					games[code].players[name].emoji = emoji
-					// player has joined
+					games[code].players[name] = &player{
+						emoji: emoji,
+						waitingToJoin: games[code].started,
+						connChan: connChan,
+					}
+					log.Printf("\nplayer has joined: %s/%s\n", code, name)
 
 					for n, v := range games[code].players { // tell other players
 						if n != name { // don't need to send the message to yourself
@@ -87,115 +102,98 @@ func main() {
 						}
 					}
 
-					var msg string
-					if games[code].started { // if game has already started
-						msg = "wait for next round"
+					var reply string
+					if games[code].started {
+						reply = "wait for next round"
 					} else {
-						msg = "wait for start"
+						reply = "wait for start"
 					}
-					msg += fmt.Sprintf("\n%s\n%s\n%s", code, emoji, name)
-					for p := range games[code].players {
-						if p.name != name {
-							msg += fmt.Sprinf("\n%s\n%s", p.emoji, p.name)
+					reply += fmt.Sprintf("\n%s\n%s\n%s", code, emoji, name)
+					for n := range games[code].players {
+						if n != name {
+							reply += fmt.Sprintf("\n%s\n%s", games[code].players[n].emoji, n)
 						}
 					}
 
-					sendMsg(conn, name, msg)
+					mutex.Unlock()
+					sendMsg(conn, code, name, reply)
 
-					mutex.Unlock() // UNLOCK
 
 				case "move to": // col // row
+
 				case "new game": // name
 					name = msg[1]
+					log.Printf("\n?/%s is trying to initialize new game.\n", name)
 
-					log.Println("try to make new game.")
+					mutex.Lock()
 					var err error
 					code, err = newGameCode() // make new game
 					if err != nil {
-						sendMsg(conn, conn.RemoteAddr().String(), "too many games in session")
+						sendMsg(conn, "?", name, "too many games in session")
+						mutex.Unlock()
 						break
 					}
 
-					mutex.Lock() // LOCK
-					games[code] = &game{ // initialize
+					games[code] = &game{
 						players: make(map[string]*player),
+						usedEmojis: make([][]bool, len(emojis)),
 					}
-					log.Printf("new game created: %s\n", code)
+					for i := range games[code].usedEmojis {
+						games[code].usedEmojis[i] = make([]bool, len(emojis[i]))
+					}
+					log.Printf("\nnew game created: %s\n", code)
 
-					games[code].players[name] = &player{ // add seeker to list of players
+					emoji = randomEmoji(games[code], name)
+					games[code].players[name] = &player{
+						emoji: emoji,
 						seeker: true,
 						connChan: connChan,
 					}
+					mutex.Unlock()
+					log.Printf("\nplayer has joined: %s/%s\n", code, name)
 
-					games[code].usedEmojis :=  make([][]bool, len(emojis))
-					for i := range games[code].usedEmojis {
-						games[code].usedEmojis[i] := make([]bool, len(emojis[i])
-					}
-					emoji = randomEmoji(games[code], name)
-					games[code].players[name].emoji = emoji
-
-					mutex.Unlock() // UNLOCK
-					log.Printf("player added: %s\n", name)
-
-					sendMsg(conn, name, fmt.Sprintf("game initialized\n%s\n%s\n%s", code, emoji, name))
+					sendMsg(conn, code, name, fmt.Sprintf("game initialized\n%s\n%s\n%s", code, emoji, name))
 
 				case "ready":
 				case "ready for next round":
 				case "start":
-					/*
-can we start? at least 2 players
-started = true
-create a forest
-give a UNIQUE random location to every player
-send to every player
+					mutex.Lock()
 
-positions
-ed
-3
-4
-bri
-4
-4
-
-forest
-....
-....
-....
-....
-
-
-got forest
-
-got positions
-
-go!
-
-
-
-
-					*/
-					mutex.Lock() // LOCK
 					if len(games[code].players) < 2 {
-						// error
+						sendMsg(conn, code, name, "too few hiders")
 						mutex.Unlock()
 						break
 					}
+
 					games[code].started = true
+
 					games[code].wood = growForest(games[code].players)
-					populateForest(games[code])
+
+					populateForest(games[code]) // everyone's given a random col and row
+
+					/* DEBUG
 					for _, s := range games[code].wood {
 						fmt.Println(string(s))
 					}
 					for n, p := range games[code].players {
 						fmt.Printf("%s (%d, %d)", n, p.x, p.y)
 					}
+					*/
 
-					for n, v := range games[code].players { // tell other players
-						if n != name { // NOT TRUEdon't need to send the message to yourself
-							v.connChan <- "game has started"
-						}
+					reply := "setup"
+					for n := range games[code].players {
+						reply += fmt.Sprintf("\n%s %s %s", games[code].players[n].emoji, games[code].players[n].col, games[code].players[n].row)
 					}
-					mutex.Unlock() // UNLOCK
+
+					reply += fmt.Sprintf("\nforest\n%d\n", len(games[code].wood[0]))
+					for treeLine := range games[code].wood {
+							reply += string(treeLine)
+					}
+
+					for _, v := range games[code].players { // tell other players
+						v.connChan <- reply
+					}
+					mutex.Unlock()
 
 				} // switch end
 			}
@@ -208,7 +206,7 @@ go!
 
 			switch msg[0] { // most of these simply relay the msg to the client
 			case "joined", "game has started":
-				sendMsg(conn, name, rawMsg)
+				sendMsg(conn, code, name, rawMsg)
 			}
 		}
 	})
@@ -220,12 +218,12 @@ go!
 	http.ListenAndServe(":8080", nil)
 }
 
-func sendMsg(conn *websocket.Conn, name string, msg string) error {
+func sendMsg(conn *websocket.Conn, code string, name string, msg string) error {
 	if err := conn.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
-		log.Println("conn.WriteMessage failed:\nconnection:\n%s\nmsg:\n%s\n", conn.RemoteAddr().String(), msg)
+		log.Printf("\nconn.WriteMessage failed:\nconnection:\n%s\nto: %s/%s\nmsg:\n%s\n", conn.RemoteAddr().String(), code, name, msg)
 		return err
 	}
-	log.Printf("message sent to %s:\n%s", name, msg)
+	log.Printf("\nmessage sent to %s/%s:\n%s\n", code, name, msg)
 	return nil
 }
 

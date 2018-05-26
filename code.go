@@ -3,23 +3,13 @@ package main
 import (
 	"errors"
 	//"fmt"
-	"log"
-	"math/rand"
-	"time"
 )
 
-var random *rand.Rand
 const letters = "ACEFHJKMNPRTWXY"
 const digits = "23456789"
 const either = letters + digits
 const maxCodes = len(letters)*len(either)*len(digits)*len(digits)
 var codesProduced = 0
-
-func init() {
-	source := rand.NewSource(time.Now().UnixNano())
-	random = rand.New(source)
-	log.Println("There are", maxCodes, "possible game codes.")
-}
 
 func newGameCode() (string, error) {
 	if codesProduced == maxCodes { // see comments below
