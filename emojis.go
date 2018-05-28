@@ -14,7 +14,7 @@ func init() {
 	for _, set := range emojis {
 		maxPlayersPerGame += len(set)
 	}
-	log.Printf("\nmaximum number of players per game: %v\n", maxPlayersPerGame)
+	log.Printf("  maximum number of players per game: %v\n", maxPlayersPerGame)
 }
 
 func randomEmoji(g *game, name string) string {
@@ -27,10 +27,11 @@ func randomEmoji(g *game, name string) string {
 
 	grabFromSet := func(i int) rune {
 		len := len(emojis[i])
-		if len == 1 { // this loop below doesn't work if len is 1
+		if len == 1 { // the loop below doesn't work if len is 1
 			if g.usedEmojis[i][0] {
 				return rune(0)
 			}
+			g.usedEmojis[i][0] = true
 			return emojis[i][0]
 		}
 
@@ -45,6 +46,7 @@ func randomEmoji(g *game, name string) string {
 				r = 0
 			}
 		}
+		g.usedEmojis[i][r] = true
 		return emojis[i][r]
 	}
 

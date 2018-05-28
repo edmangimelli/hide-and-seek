@@ -21,7 +21,7 @@
 </body>
 <script>
 
-                       //R = current round, G = game (all rounds)
+                       //R = current round, G = game (all rounds), B = before joining a game
 let messageArea = document.getElementById("messageArea"),
     forestArea = document.getElementById("forestArea"),
     amSeeker = false,  //R/
@@ -30,6 +30,7 @@ let messageArea = document.getElementById("messageArea"),
     started = false,   //G/  has the game started (has the first round started)
     go = false,        //R/  received go signal (controls whether or not move() works)
     name = "",         //G/  your name
+    desiredName = "",  //B/
     emoji = "?",       //G/  your emoji
     code = "",         //G/  the game you're playing in
     forest = [],       //R/   holds a copy of the forest for redrawing
@@ -49,6 +50,7 @@ socket.onmessage = function (e) {
 	case "found": // emoji // name
 		break
 	case "game initialized": // code // emoji // name
+		amSeeker = true;
 		code = msg[1];
 		emoji = msg[2];
 		name = msg[3];
@@ -106,9 +108,8 @@ socket.onmessage = function (e) {
 
 		break
 	case "name is taken":
-		name = "";
 		mainScreen();
-		printlns(messageArea, "That name is taken. 😕", "Try a different name!");
+		reportProblemWithDesiredName({reason: msg[0], str: desiredName});
 		break
 	case "no such game":
 		code = "";
@@ -224,12 +225,23 @@ function mainScreen() {
 }
 
 function newGame() {
-	amSeeker = true;
-	sendMsg("new game", document.getElementById("name").value);
+	let desiredName = validName(document.getElementById("name").value);
+	if (!desiredName.valid) {
+		reportProblemWithDesiredName(desiredName);
+		return;
+	}
+	sendMsg("new game", desiredName.str);
 }
 
 function enterCodeScreen() {
-	name = document.getElementById("name").value;
+	let name = validName(document.getElementById("name").value);
+	if (!name.valid) {
+		reportProblemWithDesiredName(name);
+		return;
+	}
+
+	desiredName = name.str;
+
 	messageArea.innerHTML = `
 
 	code: <input id="code" maxlength="4"><br>
@@ -242,7 +254,7 @@ function enterCodeScreen() {
 }
 
 function joinGame() {
-	sendMsg("join", document.getElementById("code").value, name);
+	sendMsg("join", document.getElementById("code").value, desiredName);
 }
 
 function seekerWaitingForPlayersScreen() {
@@ -278,7 +290,7 @@ function waitForScreen() {
 		<br>
 		${arguments[0]}<br>
 		${arguments[1]}<br>
-		${arguments[2]}<br>
+		${arguments[2] === "" ? "": arguments[2]+ "<br>"}
 		<br>
 		<div id="joined">
 		<div>Joined:</div>
@@ -305,9 +317,12 @@ function sendMsg() {
 function printlns() {
 	args = Array.from(arguments);
 	len = args.length;
+	args[0].appendChild(document.createElement("br"));
 	for (let i = 1; i < len; i++) {
-		arg[0].appendChild(document.createTextNode(arg[i]));
-		arg[0].appendChild(document.createElement("br"));
+		if (!(args[i] === "")) {
+			args[0].appendChild(document.createTextNode(args[i]));
+		}
+		args[0].appendChild(document.createElement("br"));
 	}
 }
 
@@ -432,6 +447,59 @@ function addToJoinedList(emoji, name) {
 
 function removeFromJoinedList(emoji) {
 	document.getElementById("joined").removeChild(document.getElementById(emoji));
+}
+
+function reportProblemWithDesiredName(desiredName) {
+	switch (desiredName.reason) {
+	case "empty string":
+		printlns(messageArea, "What&apos;s your name?");
+		break;
+	case "illegal character":
+		printlns(messageArea, "Can't use this", "character in a name:", desiredName.str, "", "Try a different name :D");
+		break;
+	case "name is taken":
+		printlns(messageArea, "This name's taken:", desiredName.str, "", "Try a different name :D");
+		break;
+	default:
+		printlns(messageArea, "Try a different name :D");
+		break;
+	}
+}
+
+function validName(name) {
+	name = String(name);
+	let result = {valid: false, reason: "", str: ""}; // str either holds the valid name or an illegal character
+
+	if (name === "") {
+		result.reason = "empty string";
+		return result;
+	}
+	
+	let illChar = illegalChar(name);
+
+	if (illChar === "") {
+		result.valid = true;
+		result.str = name;
+		return result;
+	} else {
+		result.reason = "illegal character";
+		result.str = illChar;
+		return result;
+	}
+}
+
+function illegalChar(name) {
+	if (name.split("\n").length > 1) {
+		return "\n";
+	}
+
+	let illChar = /[^\-\w.()[\]]/.exec(name);
+
+	if (illChar == null) {
+		return "";
+	} else {
+		return illChar[0];
+	}
 }
 
 </script>

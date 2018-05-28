@@ -17,7 +17,7 @@ var random *rand.Rand
 func init() {
    source := rand.NewSource(time.Now().UnixNano())
    random = rand.New(source)
-   log.Println("There are", maxCodes, "possible game codes.")
+	log.Printf("             maximum number of games: %d\n", maxCodes)
 }
 
 type player struct {
@@ -56,11 +56,29 @@ func main() {
 	http.HandleFunc("/socket", func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := upgrader.Upgrade(w, r, nil)
 
-		// conn.SetCloseHandler(func())
-		// delete(games[code].players, player)
-
 		connChan := make(chan string)
 		code, emoji, name := "", "", conn.RemoteAddr().String()
+
+/*		conn.SetCloseHandler(func(codeNumber int, text string) error {
+			if name == "" || code == "" { return }
+			mutex.Lock()
+			case len(games[code].players) {
+			case 1:
+				// start next round if there are players waiting
+				// otherwise delete game
+			case 2: //
+				// start next round
+				delete(games[code].players, player)
+			}
+			for n, v := range games[code].players { // tell other players
+				if n != name {
+					v.connChan <- fmt.Sprintf("left\n%s\n%s", emoji, name)
+				}
+			}
+			delete(games[code].players, player)
+			mutex.Unlock()
+		})
+*/
 
 		go func () { // *** Receive messages from client (external)
 			for {
@@ -332,3 +350,4 @@ func everyonesReady(g *game) bool {
 	}
 	return true
 }
+
