@@ -1,12 +1,18 @@
 <!DOCTYPE html>
 <!-- Ed Mangimelli 2018 -->
 <head>
+	<title>Hide and Seek!</title>
 	<meta charset="utf-8">
 	<style>
-		body {text-align: center; font-size: 15px; font-family: sans-serif}
+		body {text-align: center; font-size: 15px; font-family: sans-serif; background-color: LightGreen;}
 		input {width: 150px; font-size: 15px; font-family: sans-serif;}
 		button {font-size: 15px; font-family: sans-serif;}
+		div {margin: 0 auto;}
+		table {margin: 0 auto; font-size: 250%; border-collapse: collapse;}
 		.bold {font-weight: bold}
+		.light {font-style: italic; font-size: 85%;}
+		.occupiable {background-color: #ffccd4;}
+		.unvisited {text-decoration: underline;}
 	</style>
 </head>
 <body>
@@ -15,62 +21,89 @@
 </body>
 <script>
 
+                       //R = current round, G = game (all rounds)
 let messageArea = document.getElementById("messageArea"),
     forestArea = document.getElementById("forestArea"),
-    seeker = false,
-    started = false,
-    name = "",
-    emoji = "",
-    code = "",
-    forest = [], // holds a copy of the forest for redrawing
+    amSeeker = false,  //R/
+    seeker = "?",      //R/  who's the seeker
+    seekerEmoji = "👁", //G/  the emoji used for the seeker (seen by the hiders)
+    started = false,   //G/  has the game started (has the first round started)
+    go = false,        //R/  received go signal (controls whether or not move() works)
+    name = "",         //G/  your name
+    emoji = "?",       //G/  your emoji
+    code = "",         //G/  the game you're playing in
+    forest = [],       //R/   holds a copy of the forest for redrawing
     socket = new WebSocket("ws://localhost:8080/socket");
-	
+
 
 socket.onopen = function () {
 	console.log("connected.");
 };
 
 socket.onmessage = function (e) {
-	console.log("received message:")
-	console.log(e.data)
+	console.log("received message:");
+	console.log(e.data);
 
-
-	e = e.data.split("\n")
-	switch (e[0]) { // 15 message types can be received:
+	msg = e.data.split("\n")
+	switch (msg[0]) {
 	case "found": // emoji // name
 		break
 	case "game initialized": // code // emoji // name
-		code = e[1];
-		emoji = e[2];
-		name = e[3];
+		code = msg[1];
+		emoji = msg[2];
+		name = msg[3];
 		seekerWaitingForPlayersScreen();
 		break;
 	case "go!":
+		go = true;
 		break;
 	case "joined": // emoji // name
 		if (started) {
 			break;
 		}
-		addToJoinedList(e[1], e[2]);
+		addToJoinedList(msg[1], msg[2]);
 		break;
 	case "left": // emoji // name
 		if (started) {
 			break;
 		}
-		removeFromJoinedList(e[1]);
+		removeFromJoinedList(msg[1]);
 		break;
-	case "moved": // emoji // col // row
-		// oldPosition = position
-		// update position
-		// redraw(emoji,new,from)
-		// if it's you
-		// and your seeker
-		//  make all spots around you searchable
-		//  make prevous spot = "" and remove its class searchable
-		// you hider
-		//   using previous position
-		//     remove class "occupiable" from adjacent
-		//   apply occupiable to all adjacent spots
+	case "moved": // EMOJI // from // ROW // COL // to // ROW // COL
+		let movingEmoji = msg[1],
+		    fromRow = msg[3],
+		    fromCol = msg[4],
+		    toRow = msg[6],
+		    toCol = msg[7];
+
+		let fromCell = document.getElementById(`${fromRow} ${fromCol}`),
+		    toCell = document.getElementById(`${toRow} ${toCol}`);
+
+		fromCell.innerHTML = forest[fromRow][fromCol];
+
+		if (amSeeker) {
+			if (movingEmoji == emoji) {
+				toCell.innerHTML = emoji;
+			}
+		} else {
+			fromCell.classList.remove("occupied");
+			toCell.classList.add("occupied");
+			if (movingEmoji == seeker) {
+				toCell.innerHTML = seekerEmoji;
+			} else {
+				toCell.innerHTML = movingEmoji;
+			}
+		}
+// THIS NEEDS TO BE FIXED. SEEKER REMOVES TREES
+		if (movingEmoji == emoji) {
+//			if (!amSeeker) {
+				for (let occ of Array.from(document.getElementsByClassName("occupiable"))) {
+					occ.classList.remove("occupiable");
+				}
+//			}
+			makeNearbyTreesOccupiable(toRow, toCol);
+		}
+
 		break
 	case "name is taken":
 		name = "";
@@ -82,29 +115,65 @@ socket.onmessage = function (e) {
 		enterCodeScreen();
 		printlns(messageArea, "Can't find that game. 😕", "Is that the right code?");
 		break
-	case "setup": // ! variable length message
+	case "seeker left; new seeker": // emoji // name
+		break;
+	case "setup": // seeker EMOJI // EMOJI ROW COL // EMOJI ROW COL // ... // forest // TREES_PER_ROW // TREES...
+		if (amSeeker) {
+			messageArea.innerHTML = `<span class="light">Find &apos;em, ${name}!</span>`;
+		} else {
+			messageArea.innerHTML = `<span class="light">Hide, ${name}!</span>`;
+		}
+
 		started = true;
 
-		let players = [],
-		    len = e.length;
+		seeker = msg[1].split(" ")[1];
 
-		for (let i = 1; i < len; i++) {
-			let words = e[i].split(" ");	
+		let players = [], // grab players from msg
+		    len = msg.length;
+		let i = 2;
+		for (; i < len; i++) {
+			let words = msg[i].split(" ");	
 			if (words[0] === "forest") {
 				break;
 			}
-			players.push({emoji: words[0], col: words[1], row: words[2]});
-			if (words[0] === emoji) {
-				col = words[1];
-				row = words[2];
+			players.push({emoji: words[0], row: words[1], col: words[2]});
+		}
+
+		makeForest(Number(msg[i+1]), msg[i+2]);
+		let span = document.createElement("span");
+		span.classList.add("light");
+		span.appendChild(document.createTextNode(`Game: ${code}`));
+		forestArea.appendChild(span);
+
+		let row = -1,
+		    col = -1;
+		for (let p of players) { // put players on forest
+			let cell = document.getElementById(`${p.row} ${p.col}`);
+			if (p.emoji === emoji) {
+				row = p.row;
+				col = p.col;
+			}
+
+			if (amSeeker) { // seeker sees no one else
+				if (p.emoji === emoji) {
+					cell.innerHTML = emoji;
+					makeNearbyTreesOccupiable(p.row, p.col);
+				}
+			} else { // hider sees everyone
+				cell.classList.add("occupied");
+				if (p.emoji == seeker) {
+					cell.innerHTML = seekerEmoji;
+				} else {
+					cell.innerHTML = p.emoji;
+				}
 			}
 		}
 
-		makeForest(Number(e[i+1]), e[i+2]);
-
-		for (let p of players) {
-			document.getElementById(`${p.col} ${p.row}`).innerHTML = p.emoji;
+		if (!amSeeker) {
+			makeNearbyTreesOccupiable(row, col);
 		}
+
+		sendMsg("ready to go");
 		
 		break;
 	case "too few hiders":
@@ -115,42 +184,21 @@ socket.onmessage = function (e) {
 		messageArea.innerHTML = "";
 		printlns(messageArea, "Whoa!", "The server can't handle", "any more games!", "Try again later", "or join a game.");
 		break;
-	case "wait for next round": // code // yourEmoji // yourName // everyone else
-		code = e[1];
-		emoji = e[2];
-		name = e[3];
-		messageArea.innerHTML = `
-
-		You'll join at<br>
-		the next round!
-		<p id="joined">
-		Joined:<br>
-		<div id="${emoji}">${emoji} ${name} (you)</div>
-		</p>
-
-		`;
-		addToJoinedList(...e.slice(4,));
+	case "wait for next round": // code // yourEmoji // yourName // emoji // name // ...
+		code = msg[1];
+		emoji = msg[2];
+		name = msg[3];
+		waitForScreen("You'll join at", "the next round!", "");
+		addToJoinedList(...msg.slice(4,));
 		break;
-	case "wait for start": // code // yourEmoji // yourName // everyone else
-		code = e[1];
-		emoji = e[2];
-		name = e[3];
-		messageArea.innerHTML = `
-
-		The seeker has not<br>
-		started the game yet.<br>
-		Hold Tight!
-		<p id="joined">
-		Joined:<br>
-		<div id="${emoji}">${emoji} ${name} (you)</div>
-		</p>
-
-		`;
-		addToJoinedList(...e.slice(4,));
+	case "wait for start": // code // yourEmoji // yourName // emoji // name // ...
+		code = msg[1];
+		emoji = msg[2];
+		name = msg[3];
+		waitForScreen("The seeker has not", "started the game yet.", "Hold Tight!");
+		addToJoinedList(...msg.slice(4,));
 		break;
 	case "winner": // emoji // name
-		break;
-	case "seeker left; new seeker": // emoji // name
 		break;
 	default:
 		// UNKNOWN MESSAGE
@@ -176,7 +224,7 @@ function mainScreen() {
 }
 
 function newGame() {
-	seeker = true;
+	amSeeker = true;
 	sendMsg("new game", document.getElementById("name").value);
 }
 
@@ -203,15 +251,16 @@ function seekerWaitingForPlayersScreen() {
 	You are the seeker!<br>
 	Tell your friends to<br>
 	<em class="bold">join</em> your game<br>
-	using code: <span class="bold">${code}</span>
-	<p id="joined">
-	Joined:<br>
-	${name} (you)<br>
-	</p>
+	using code: <span class="bold">${code}</span><br>
+	<br>
+	<div id="joined">
+		<div>Joined:</div>
+		<div id="${emoji}">${emoji} ${name} (you)</div>
+	</div>
+	<br>
 	Once everyone has<br>
 	joined click start.<br>
 	<button id="start">Start</button><br>
-	<br>
 	<br>
 	People can join after<br>
 	you start, but they'll<br>
@@ -221,6 +270,25 @@ function seekerWaitingForPlayersScreen() {
 	`;
 	document.getElementById("start").addEventListener("click", start);
 }
+
+function waitForScreen() {
+		messageArea.innerHTML = `
+
+		Game <span class="bold">${code}</span>:<br>
+		<br>
+		${arguments[0]}<br>
+		${arguments[1]}<br>
+		${arguments[2]}<br>
+		<br>
+		<div id="joined">
+		<div>Joined:</div>
+		<div class="${emoji}">${emoji} ${name} (you)</div>
+		</div>
+		<br>
+
+		`;
+}
+
 
 function start() {
 	sendMsg("start");
@@ -265,27 +333,20 @@ function print() {
 */
 
 function hiderMove(event) {
-	id = event.target.id.split(" ");
-	c = Number(id[0]);
-	r = Number(id[1]);
+	let id = event.target.id.split(" ");
+	let row = Number(id[0]),
+	    col = Number(id[1]);
 
-	if (c > col+1 || c < col-1 || r > row+1 || r < row-1) {
-		return // can only move to adjacent areas
-	}
-
-	if (!hasClass("tree", event.target.className.split(" "))) {
+	if (!event.target.classList.contains("occupiable")) {
 		return // cannot move to empty spaces
 	}
 
-	if (event.target.innerHTML !== "") {
-		return // cannot move into occupied spots
-	}
-
-	sendMsg(`move to\n${c}\n${r}`);
+	sendMsg(`move to\n${row}\n${col}`);
 }
 
-function seekerMove(event) {
-	if (!hasClass("searchable", event.target.className.split(" "))) {
+function move(event) {
+	if (!go) { return };
+	if (!event.target.classList.contains("occupiable")) {
 		return; // cannot move to empty spaces
 	}
 	id = event.target.id.split(" ");
@@ -293,19 +354,36 @@ function seekerMove(event) {
 	return;
 }
 
-function hasClass(clas, classes) {
-	for (c of classes) {
-		if (c === clas) {
+/*
+function hasClass(thisClass, classes) {
+	for (c of classes.split(" ")) {
+		if (c === thisClass) {
 			return true;
 		}
 	}
 	return false;
 }
+*/
+
+function makeNearbyTreesOccupiable(row, col) {
+	row = Number(row);
+	col = Number(col);
+
+	for (let r = row-1; r <= row+1; r++) {
+		for (let c = col-1; c <= col+1; c++) {
+			if (r === row && c === col) { continue; }
+			cell = document.getElementById(`${r} ${c}`);
+			if (cell && cell.classList.contains("tree") && !cell.classList.contains("occupied")) { //seekers don't use the occupied class
+				cell.classList.add("occupiable");
+			}
+		}
+	}
+}
 
 function makeForest(treesPerRow, trees) {
 	trees = Array.from(trees);
 
-	let col = 0,
+	let row = 0,
 	    t = 0,
 	    len = trees.length,
 	    table = document.createElement("table");
@@ -313,22 +391,28 @@ function makeForest(treesPerRow, trees) {
 	while (t < len) {
 		let tr = document.createElement("tr"); // building forest html table
 		let treeLine = []; // building forest array
-		for (let row=0; row < treesPerRow; row++) {
+		for (let col=0; col < treesPerRow; col++) {
 			let td = document.createElement("td");
-			td.setAttribute("id", `${row} ${col}`);
-			td.appendChild(document.createTextNode(trees[t]));
-			if (seeker) {
-				td.addEventListener("click", seekerMove);
-			} else {
-				td.addEventListener("click", hiderMove);
+			td.id = `${row} ${col}`;
+			if (trees[t] !== " ") {
+				td.className += "tree";
+				td.addEventListener("click", move);
+				/*
+				if (amSeeker) {
+					td.addEventListener("click", seekerMove);
+				} else {
+					td.addEventListener("click", hiderMove);
+				}
+				*/
 			}
+			td.appendChild(document.createTextNode(trees[t]));
 			tr.appendChild(td);
 			treeLine.push(trees[t]);
 			t++;
 		}
 		table.appendChild(tr);
 		forest.push(treeLine);
-		col++;
+		row++;
 	}
 
 	forestArea.appendChild(table);
@@ -337,11 +421,11 @@ function makeForest(treesPerRow, trees) {
 function addToJoinedList(emoji, name) {
 	joinedList = document.getElementById("joined");
 	for (let i = 0; i < arguments.length; i+=2) {
-		let emoji = arguments[i];
-		let name = arguments[i+1];
+		let e = arguments[i];
+		let n = arguments[i+1];
 		div = document.createElement("div");
-		div.setAttribute("id", emoji);
-		div.appendChild(document.createTextNode(`${emoji} ${name}`));
+		div.setAttribute("id", e);
+		div.appendChild(document.createTextNode(`${e} ${n}`));
 		joinedList.appendChild(div);
 	}
 }

@@ -4,21 +4,22 @@ import "strings"
 
 type forest [][]rune
 
-const treesPerPlayer = 4 // so not exactly a 25% chance of getting found (4 trees for the seeker too)
+const treesPerPlayer = 8
 
 func growForest(players map[string]*player) forest {
 	//var trees = []rune("🌲🌳🌴🌵")
-	var trees = []rune("🌲")
+	var trees = []rune("🌲🌳")
+	//var trees = []rune{'🌲'}
 
 easterEgg:
 	for n := range players { // santa trumps any request to play indoors
 		name := strings.ToLower(n)
 		if isSanta(name) {
-			trees = []rune("🎄")
+			trees = []rune{'🎄'}
 			break easterEgg
 		}
 		if strings.Contains(name, "indoor") || strings.Contains(name, "inside") {
-			trees = []rune("🚪")
+			trees = []rune{'🚪'}
 		}
 	}
 
@@ -35,7 +36,7 @@ easterEgg:
 	}
 
 	for t := 0; t < treesToRemove; t++ { // remove the extra trees
-		f[random.Intn(rows)][random.Intn(perRow)] = rune(' ')
+		f[random.Intn(rows)][random.Intn(perRow)] = ' '
 	}
 
 	return f

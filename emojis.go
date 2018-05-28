@@ -5,7 +5,6 @@ import (
 	"log"
 )
 
-const seeker = '👁'
 const santa = '🎅'
 var emojis = [][]rune{[]rune("😛👽💩🤖👾👻😸🙈👶🐶🦁🐴🦄🐮🐷⛄🎃🌛🐐🐪🐘🐭🐰🐿🐨🐼🐔🐣🐧🕊🐸🐊🐢🐍🐳🐟🐡🐙🦀🐌🐜🐝🐞🕷"), []rune("🐚⛷🚣🏎👌👃💋🕶🎒👟👑🎓💎🍇🍉🍋🍍🍎🍓🍅🍄🍞🧀🍔🍟🍕🌭🍿🍦🍩🍪🎂🍫🍭☕🍽🗽🎠💈🚂🚌🚲🛢⚓⏰☂🎈📖🕯💡📷📺💾☎🎷🔔🏐🔮🎮🎲📡💼📬☯⚛🏁"), []rune("🂡🂢🂣🂤🂥🂦🂧🂨🂩🂪🂫🂭🂮🂱🂲🂳🂴🂵🂶🂷🂸🂹🂺🂻🂽🂾🃁🃂🃃🃄🃅🃆🃇🃈🃉🃊🃋🃍🃎🃑🃒🃓🃔🃕🃖🃗🃘🃙🃚🃛🃝🃞🂿"), []rune("🁣🁤🁥🁦🁧🁨🁩🁪🁫🁬🁭🁮🁯🁰🁱🁲🁳🁴🁵🁶🁷🁸🁹🁺🁻🁼🁽🁾🁿🂀🂁🂂🂃🂄🂅🂆🂇🂈🂉🂊🂋🂌🂍🂎🂏🂐🂑🂒🂓"), []rune("①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳")}
 
@@ -18,12 +17,12 @@ func init() {
 	log.Printf("\nmaximum number of players per game: %v\n", maxPlayersPerGame)
 }
 
-func randomEmoji(g *game, name string) rune {
+func randomEmoji(g *game, name string) string {
 
 	name = strings.ToLower(name)
 	if isSanta(name) && !g.santaInUse {
 		g.santaInUse = true
-		return santa
+		return string(santa)
 	}
 
 	grabFromSet := func(i int) rune {
@@ -54,7 +53,7 @@ func randomEmoji(g *game, name string) rune {
 		r = grabFromSet(i)
 	}
 
-	return r // this could fail if server.go isn't making sure we don't max out on players
+	return string(r) // this could fail if server.go isn't making sure we don't max out on players
 }
 
 func isSanta(name string) bool {

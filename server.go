@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,9 +21,11 @@ func init() {
 }
 
 type player struct {
-	emoji rune
+	emoji string
 	seeker bool
-	col, row int
+	found bool
+	ready bool
+	row, col int
 	waitingToJoin bool
 	connChan chan string
 	numberOfTimesHasBeenSeeker int
@@ -57,8 +60,7 @@ func main() {
 		// delete(games[code].players, player)
 
 		connChan := make(chan string)
-		var code, name string
-		var emoji rune
+		code, emoji, name := "", "", conn.RemoteAddr().String()
 
 		go func () { // *** Receive messages from client (external)
 			for {
@@ -66,7 +68,7 @@ func main() {
 				if err != nil {
 					return
 				}
-				log.Printf("\nmessage received:\n%s\n", string(rawMsg))
+				log.Printf("\nmessage received from %s/%s:\n%s\n", code, name, string(rawMsg))
 				msg := strings.Split(string(rawMsg), "\n")
 
 				switch msg[0] { // 6 message types can be received:
@@ -119,7 +121,56 @@ func main() {
 					sendMsg(conn, code, name, reply)
 
 
-				case "move to": // col // row
+				case "move to": // row // col
+					row, _ := strconv.Atoi(msg[1])
+					col, _ := strconv.Atoi(msg[2])
+
+					mutex.Lock()
+					if games[code].wood[row][col] == ' ' { // can't move to non-tree
+						log.Printf("\ncan't move there. no tree.\n")
+						mutex.Unlock()
+						break
+					}
+
+					occ := occupant(row, col, games[code])
+
+					if games[code].players[name].seeker { // seeker
+						for _, v := range games[code].players { // tell other players
+							v.connChan <- fmt.Sprintf("moved\n%s\nfrom\n%d\n%d\nto\n%d\n%d", emoji, games[code].players[name].row, games[code].players[name].col, row, col)
+						}
+
+						games[code].players[name].row = row
+						games[code].players[name].col = col
+
+						if occ != "" {
+							games[code].players[occ].found = true
+							for _, v := range games[code].players { // tell other players
+								v.connChan <- fmt.Sprintf("found\n%s\n%s", games[code].players[occ].emoji, occ)
+							}
+						}
+
+						last := onlyOneHiderLeft(games[code])
+						if last != "" {
+							for _, v := range games[code].players { // tell other players
+								v.connChan <- fmt.Sprintf("winner\n%s\n%s", games[code].players[last].emoji, last)
+							}
+						}
+
+					} else { // hider
+						if occ != "" {
+							mutex.Unlock()
+							break
+						}
+
+						for _, v := range games[code].players { // tell other players
+							v.connChan <- fmt.Sprintf("moved\n%s\nfrom\n%d\n%d\nto\n%d\n%d", emoji, games[code].players[name].row, games[code].players[name].col, row, col)
+						}
+
+						games[code].players[name].row = row
+						games[code].players[name].col = col
+					}
+
+					mutex.Unlock()
 
 				case "new game": // name
 					name = msg[1]
@@ -154,8 +205,17 @@ func main() {
 
 					sendMsg(conn, code, name, fmt.Sprintf("game initialized\n%s\n%s\n%s", code, emoji, name))
 
-				case "ready":
-				case "ready for next round":
+				case "ready to go":
+					mutex.Lock()
+					games[code].players[name].ready = true
+					if everyonesReady(games[code]) {
+						for _, v := range games[code].players { // tell other players
+							v.connChan <- "go!"
+						}
+					}
+					mutex.Unlock()
+
+				case "ready for next setup":
 				case "start":
 					mutex.Lock()
 
@@ -169,7 +229,7 @@ func main() {
 
 					games[code].wood = growForest(games[code].players)
 
-					populateForest(games[code]) // everyone's given a random col and row
+					populateForest(games[code]) // everyone's given a random row and col
 
 					/* DEBUG
 					for _, s := range games[code].wood {
@@ -180,14 +240,14 @@ func main() {
 					}
 					*/
 
-					reply := "setup"
+					reply := fmt.Sprintf("setup\nseeker %s", seekerEmoji(games[code]))
 					for n := range games[code].players {
-						reply += fmt.Sprintf("\n%s %s %s", games[code].players[n].emoji, games[code].players[n].col, games[code].players[n].row)
+						reply += fmt.Sprintf("\n%s %d %d", games[code].players[n].emoji, games[code].players[n].row, games[code].players[n].col)
 					}
 
 					reply += fmt.Sprintf("\nforest\n%d\n", len(games[code].wood[0]))
-					for treeLine := range games[code].wood {
-							reply += string(treeLine)
+					for _, treeLine := range games[code].wood {
+						reply += string(treeLine)
 					}
 
 					for _, v := range games[code].players { // tell other players
@@ -202,12 +262,13 @@ func main() {
 		// *** Receive messages from other players (internal)
 		for {
 			rawMsg := <-connChan
-			msg := strings.Split(string(rawMsg), "\n")
+			//msg := strings.Split(string(rawMsg), "\n")
 
-			switch msg[0] { // most of these simply relay the msg to the client
-			case "joined", "game has started":
-				sendMsg(conn, code, name, rawMsg)
-			}
+			sendMsg(conn, code, name, rawMsg)
+
+			//switch msg[0] { // most of these simply relay the msg to the client
+			//case "joined", "game has started", "setup":
+			//}
 		}
 	})
 
@@ -227,3 +288,47 @@ func sendMsg(conn *websocket.Conn, code string, name string, msg string) error {
 	return nil
 }
 
+func seekerEmoji(g *game) string {
+	for n := range g.players {
+		if g.players[n].seeker {
+			return g.players[n].emoji
+		}
+	}
+	return ""
+}
+
+func occupant(row int, col int, g *game) string {
+	for n := range g.players {
+		if !g.players[n].found && !g.players[n].waitingToJoin && g.players[n].row == row && g.players[n].col == col {
+				return n
+		}
+	}
+	return ""
+}
+
+func onlyOneHiderLeft(g *game) string {
+	notFound := 0
+	last := ""
+
+	for n := range g.players {
+		if !g.players[n].found && !g.players[n].waitingToJoin {
+			notFound++
+			last = n
+		}
+	}
+
+	if notFound == 1 {
+		return last
+	} else {
+		return ""
+	}
+}
+
+func everyonesReady(g *game) bool {
+	for n := range g.players {
+		if !g.players[n].ready {
+			return false
+		}
+	}
+	return true
+}
