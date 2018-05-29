@@ -16,25 +16,39 @@
 	</style>
 </head>
 <body>
-	<div id="messageArea"></div>
+	<div id="topMsgArea"></div>
 	<div id="forestArea"></div>
+	<div id="bottomMsgArea"></div>
 </body>
 <script>
 
-                       //R = current round, G = game (all rounds), B = before joining a game
-let messageArea = document.getElementById("messageArea"),
+
+// client variables
+let socket = new WebSocket("ws://localhost:8080/socket"),
+    topMsgArea = document.getElementById("topMsgArea"),
     forestArea = document.getElementById("forestArea"),
-    amSeeker = false,  //R/
-    seeker = "?",      //R/  who's the seeker
-    seekerEmoji = "👁", //G/  the emoji used for the seeker (seen by the hiders)
-    started = false,   //G/  has the game started (has the first round started)
-    go = false,        //R/  received go signal (controls whether or not move() works)
-    name = "",         //G/  your name
-    desiredName = "",  //B/
-    emoji = "?",       //G/  your emoji
-    code = "",         //G/  the game you're playing in
-    forest = [],       //R/   holds a copy of the forest for redrawing
-    socket = new WebSocket("ws://localhost:8080/socket");
+    bottomMsgArea = document.getElementById("bottomMsgArea"),
+  //seekerEmoji = "👁"; 
+    seekerEmoji = "🔴";  //  the emoji used for the seeker (seen by the hiders)
+
+
+// game variables (set once by either "game initialized" or "wait for..." msgs)
+let code = "",   //  the game you're playing in
+    emoji = "",  //  your emoji
+    name = "";   //  your name
+
+
+// round variables (these are set when a "setup" msg is received.)
+let forest = [],      //  holds a copy of the forest for redrawing
+    seeker = "",      //  who's the seeker
+    amSeeker = false, //  are you the seeker
+    go = false,       //  received go signal (controls whether or not move() works)
+    playing = false;  //  are you in the game or are you waiting--
+                      //    you could be waiting as a seeker to start the first
+                      //    round, or you could be waiting for the seeker to
+                      //    press start for the first round, or you could have
+                      //    come in during a round and are waiting to join the
+                      //    next round.
 
 
 socket.onopen = function () {
@@ -48,9 +62,8 @@ socket.onmessage = function (e) {
 	msg = e.data.split("\n")
 	switch (msg[0]) {
 	case "found": // emoji // name
-		break
+		break;
 	case "game initialized": // code // emoji // name
-		amSeeker = true;
 		code = msg[1];
 		emoji = msg[2];
 		name = msg[3];
@@ -106,28 +119,40 @@ socket.onmessage = function (e) {
 			makeNearbyTreesOccupiable(toRow, toCol);
 		}
 
-		break
-	case "name is taken":
-		mainScreen();
-		reportProblemWithDesiredName({reason: msg[0], str: desiredName});
-		break
-	case "no such game":
-		code = "";
-		enterCodeScreen();
-		printlns(messageArea, "Can't find that game. 😕", "Is that the right code?");
-		break
-	case "seeker left; new seeker": // emoji // name
 		break;
-	case "setup": // seeker EMOJI // EMOJI ROW COL // EMOJI ROW COL // ... // forest // TREES_PER_ROW // TREES...
-		if (amSeeker) {
-			messageArea.innerHTML = `<span class="light">Find &apos;em, ${name}!</span>`;
-		} else {
-			messageArea.innerHTML = `<span class="light">Hide, ${name}!</span>`;
-		}
+	case "name is taken": // name
+		mainScreen();
+		reportProblemWithDesiredName({reason: msg[0], str: msg[1]});
+		break;
+	case "no such game": // code
+		bottomMsgArea.innerHTML = "";
+		printlns(bottomMsgArea, "Can't find that game. 😕", "", "Is that the right code?");
+		break;
+	case "setup": // seeker EMOJI // forest // TREES_PER_ROW // TREES // EMOJI // NAME // ROW // COL // SCORE // ... 
+		// forest, seeker, amSeeker, go, playing
+		//  are set using this msg
 
-		started = true;
+		clearScreen();
+
+		playing = true;
+		go = false;
 
 		seeker = msg[1].split(" ")[1];
+
+		if (seeker === emoji) { amSeeker = true; }
+
+		makeForest(Number(msg[3]), msg[4]);
+
+		let topMsg = "";
+		if (amSeeker) {
+			topMsg = `Find &apos;em, ${name}!`;
+		} else {
+			topMsg = `Hide, ${name}!`;
+		}
+		printlns(topMsgArea, topMsg);
+		printlns(bottomMsgArea, `Game: ${code}`);
+
+
 
 		let players = [], // grab players from msg
 		    len = msg.length;
@@ -140,11 +165,6 @@ socket.onmessage = function (e) {
 			players.push({emoji: words[0], row: words[1], col: words[2]});
 		}
 
-		makeForest(Number(msg[i+1]), msg[i+2]);
-		let span = document.createElement("span");
-		span.classList.add("light");
-		span.appendChild(document.createTextNode(`Game: ${code}`));
-		forestArea.appendChild(span);
 
 		let row = -1,
 		    col = -1;
@@ -178,12 +198,16 @@ socket.onmessage = function (e) {
 		
 		break;
 	case "too few hiders":
-		// this can be in the middle of a game
-		// or when the seeker presses start
+		if (playing) {
+			playing = false;
+			seekerWaitingForPlayersScreen();
+		}
+		bottomMsgArea.innerHTML = "";
+		printlns(bottomMsgArea, "Too few hiders! 😕", "", "Ask some people to join!");
 		break;
 	case "too many games in session":
-		messageArea.innerHTML = "";
-		printlns(messageArea, "Whoa!", "The server can't handle", "any more games!", "Try again later", "or join a game.");
+		bottomMsgArea.innerHTML = "";
+		printlns(bottomMsgArea, "Whoa!", "", "The server can't handle", "any more games!", "", "Try again later", "or join a game.");
 		break;
 	case "wait for next round": // code // yourEmoji // yourName // emoji // name // ...
 		code = msg[1];
@@ -202,7 +226,10 @@ socket.onmessage = function (e) {
 	case "winner": // emoji // name
 		break;
 	default:
-		// UNKNOWN MESSAGE
+		console.log("\n! unknown message:");
+		console.log(msg);
+		console.log("");
+		break;
 	}
 };
 
@@ -210,7 +237,7 @@ socket.onmessage = function (e) {
 mainScreen();
 
 function mainScreen() {
-	messageArea.innerHTML = `
+	topMsgArea.innerHTML = `
 
 	name: <input id="name" maxlength="31"><br>
 	<br>
@@ -234,15 +261,13 @@ function newGame() {
 }
 
 function enterCodeScreen() {
-	let name = validName(document.getElementById("name").value);
-	if (!name.valid) {
-		reportProblemWithDesiredName(name);
+	let desiredName = validName(document.getElementById("name").value);
+	if (!desiredName.valid) {
+		reportProblemWithDesiredName(desiredName);
 		return;
 	}
 
-	desiredName = name.str;
-
-	messageArea.innerHTML = `
+	topMsgArea.innerHTML = `
 
 	code: <input id="code" maxlength="4"><br>
 	<br>
@@ -250,15 +275,23 @@ function enterCodeScreen() {
 	<br>
 
 	`;
+
+	joinGame = function() {
+		sendMsg("join", document.getElementById("code").value, desiredName.str);
+	};
+
 	document.getElementById("join").addEventListener("click", joinGame);
 }
 
-function joinGame() {
-	sendMsg("join", document.getElementById("code").value, desiredName);
+function clearScreen() {
+	topMsgArea.innerHTML = "";
+	forestArea.innerHTML = "";
+	bottomMsgArea.innerHTML = "";
 }
 
 function seekerWaitingForPlayersScreen() {
-	messageArea.innerHTML = `
+	clearScreen();
+	topMsgArea.innerHTML = `
 
 	You are the seeker!<br>
 	Tell your friends to<br>
@@ -272,33 +305,39 @@ function seekerWaitingForPlayersScreen() {
 	<br>
 	Once everyone has<br>
 	joined click start.<br>
-	<button id="start">Start</button><br>
+	<button id="start">Start</button>
+
+	`;
+
+	bottomMsgArea.innerHTML = `
+
 	<br>
 	People can join after<br>
 	you start, but they'll<br>
 	have to wait for the<br>
-	current round to finish.<br>
+	current round to finish.
 
 	`;
 	document.getElementById("start").addEventListener("click", start);
 }
 
 function waitForScreen() {
-		messageArea.innerHTML = `
+	topMsgArea.innerHTML = `
 
-		Game <span class="bold">${code}</span>:<br>
-		<br>
-		${arguments[0]}<br>
-		${arguments[1]}<br>
-		${arguments[2] === "" ? "": arguments[2]+ "<br>"}
-		<br>
-		<div id="joined">
-		<div>Joined:</div>
-		<div class="${emoji}">${emoji} ${name} (you)</div>
-		</div>
-		<br>
+	Game <span class="bold">${code}</span>:<br>
+	<br>
+	${arguments[0]}<br>
+	${arguments[1]}<br>
+	${arguments[2] === "" ? "": arguments[2]+ "<br>"}
+	<br>
+	<div id="joined">
+	<div>Joined:</div>
+	<div class="${emoji}">${emoji} ${name} (you)</div>
+	</div>
+	<br>
 
-		`;
+	`;
+	bottomMsgArea.innerHTML = "";
 }
 
 
@@ -412,13 +451,6 @@ function makeForest(treesPerRow, trees) {
 			if (trees[t] !== " ") {
 				td.className += "tree";
 				td.addEventListener("click", move);
-				/*
-				if (amSeeker) {
-					td.addEventListener("click", seekerMove);
-				} else {
-					td.addEventListener("click", hiderMove);
-				}
-				*/
 			}
 			td.appendChild(document.createTextNode(trees[t]));
 			tr.appendChild(td);
@@ -450,18 +482,19 @@ function removeFromJoinedList(emoji) {
 }
 
 function reportProblemWithDesiredName(desiredName) {
+	bottomMsgArea.innerHTML = "";
 	switch (desiredName.reason) {
 	case "empty string":
-		printlns(messageArea, "What&apos;s your name?");
+		printlns(bottomMsgArea, "What&apos;s your name?");
 		break;
 	case "illegal character":
-		printlns(messageArea, "Can't use this", "character in a name:", desiredName.str, "", "Try a different name :D");
+		printlns(bottomMsgArea, "Can't use this", "character in a name:", desiredName.str, "", "Try a different name 😄");
 		break;
 	case "name is taken":
-		printlns(messageArea, "This name's taken:", desiredName.str, "", "Try a different name :D");
+		printlns(bottomMsgArea, "This name's taken:", desiredName.str, "", "Try a different name 😄");
 		break;
 	default:
-		printlns(messageArea, "Try a different name :D");
+		printlns(bottomMsgArea, "Try a different name 😄");
 		break;
 	}
 }

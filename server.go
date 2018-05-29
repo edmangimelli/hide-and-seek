@@ -95,13 +95,13 @@ func main() {
 					mutex.Lock()
 
 					if _, exists := games[msg[1]]; !exists {
-						sendMsg(conn, fmt.Sprintf("(!provided:) %s", msg[1]), fmt.Sprintf("(!provided:) %s", msg[2]), "no such game")
+						sendMsg(conn, code, name, fmt.Sprintf("no such game\n%s", msg[1]))
 						mutex.Unlock()
 						break
 					}
 
 					if _, exists := games[msg[1]].players[msg[2]]; exists {
-						sendMsg(conn, fmt.Sprintf("(!provided:) %s", msg[1]), fmt.Sprintf("(!provided:) %s", msg[2]), "name is taken")
+						sendMsg(conn, code, name, fmt.Sprintf("name is taken\n%s", msg[2]))
 						mutex.Unlock()
 						break
 					}
