@@ -13,6 +13,7 @@
 		.light {font-style: italic; font-size: 85%;}
 		.occupiable {background-color: #ffccd4;}
 		.unvisited {text-decoration: underline;}
+		.big {font-size: 300%;}
 	</style>
 </head>
 <body>
@@ -42,6 +43,8 @@ let code = "",   //  the game you're playing in
 let forest = [],      //  holds a copy of the forest for redrawing
     seeker = "",      //  who's the seeker
     amSeeker = false, //  are you the seeker
+    row = -1,
+    col = -1,
     go = false,       //  received go signal (controls whether or not move() works)
     playing = false;  //  are you in the game or are you waiting--
                       //    you could be waiting as a seeker to start the first
@@ -56,12 +59,31 @@ socket.onopen = function () {
 };
 
 socket.onmessage = function (e) {
-	console.log("received message:");
+	console.log("✉ received message:");
 	console.log(e.data);
 
 	msg = e.data.split("\n")
 	switch (msg[0]) {
-	case "found": // emoji // name
+	case "found": // emoji // name // ROW // COL
+	{
+		let e = msg[1],
+		    n = msg[2],
+		    r = Number(msg[3]),
+		    c = Number(msg[4]);
+
+		if (e === emoji) { // you were found
+			occs = Array.from(document.getElementsByClassName("occupiable"));
+			for (let o of occs) {
+				o.classList.remove("occupiable");
+			}
+			let cell = document.getElementById(`${r} ${c}`);
+			cell.innerHTML = forest[r][c];
+			printlns(forestArea, "You were found!", "Hang tight for the", "round to finish!");
+		} else { // someone else was found
+			someoneElseLeft_updateClasses(r, c);
+			printlns(forestArea, `${e} ${n} was found!`);
+		}
+	}
 		break;
 	case "game initialized": // code // emoji // name
 		code = msg[1];
@@ -73,18 +95,26 @@ socket.onmessage = function (e) {
 		go = true;
 		break;
 	case "joined": // emoji // name
-		if (started) {
-			break;
+		if (!playing) {
+			addToJoinedList(msg[1], msg[2]);
 		}
-		addToJoinedList(msg[1], msg[2]);
 		break;
-	case "left": // emoji // name
-		if (started) {
-			break;
+	case "left": // emoji // name // row // col
+	{
+		if (playing) {
+			let e = msg[1],
+			    n = msg[2],
+			    r = Number(msg[3]),
+			    c = Number(msg[4]);
+			forestArea.appendChild(document.createTextNode(`${e} ${n} left!`));
+			someoneElseLeft_updateClasses(r, c);
+		} else {
+			removeFromJoinedList(msg[1]);
 		}
-		removeFromJoinedList(msg[1]);
+	}
 		break;
 	case "moved": // EMOJI // from // ROW // COL // to // ROW // COL
+	{
 		let movingEmoji = msg[1],
 		    fromRow = msg[3],
 		    fromCol = msg[4],
@@ -96,6 +126,7 @@ socket.onmessage = function (e) {
 
 		fromCell.innerHTML = forest[fromRow][fromCol];
 
+		// print correct emoji
 		if (amSeeker) {
 			if (movingEmoji == emoji) {
 				toCell.innerHTML = emoji;
@@ -110,7 +141,11 @@ socket.onmessage = function (e) {
 			}
 		}
 // THIS NEEDS TO BE FIXED. SEEKER REMOVES TREES
+
+		// update row, col, and occupiable
 		if (movingEmoji == emoji) {
+			row = toRow;
+			col = toCol;
 //			if (!amSeeker) {
 				for (let occ of Array.from(document.getElementsByClassName("occupiable"))) {
 					occ.classList.remove("occupiable");
@@ -118,7 +153,7 @@ socket.onmessage = function (e) {
 //			}
 			makeNearbyTreesOccupiable(toRow, toCol);
 		}
-
+	}
 		break;
 	case "name is taken": // name
 		mainScreen();
@@ -128,7 +163,18 @@ socket.onmessage = function (e) {
 		bottomMsgArea.innerHTML = "";
 		printlns(bottomMsgArea, "Can't find that game. 😕", "", "Is that the right code?");
 		break;
+	case "round over": // seeker left | 2 player game
+		clearScreen();
+		if (msg[1] == "seeker left") {
+			printlns(topMsgArea, "Seeker left!", "", "Starting next round!")
+			setTimeout( () => sendMsg("ready for next setup"), 2000);
+		} else {
+			printlns(topMsgArea, "Hider found!", "", "Starting next round!")
+			setTimeout( () => sendMsg("ready for next setup"), 2000);
+		}
+		break;
 	case "setup": // seeker EMOJI // forest // TREES_PER_ROW // TREES // EMOJI // NAME // ROW // COL // SCORE // ... 
+	{
 		// forest, seeker, amSeeker, go, playing
 		//  are set using this msg
 
@@ -138,64 +184,86 @@ socket.onmessage = function (e) {
 		go = false;
 
 		seeker = msg[1].split(" ")[1];
+console.log("###", seeker, emoji) // quick debug
 
-		if (seeker === emoji) { amSeeker = true; }
+		if (seeker === emoji) {
+			amSeeker = true;
+		} else {
+			amSeeker = false;
+		}
 
 		makeForest(Number(msg[3]), msg[4]);
 
 		let topMsg = "";
 		if (amSeeker) {
-			topMsg = `Find &apos;em, ${name}!`;
+			topMsg = `Find 'em, ${name}!`;
 		} else {
 			topMsg = `Hide, ${name}!`;
 		}
 		printlns(topMsgArea, topMsg);
-		printlns(bottomMsgArea, `Game: ${code}`);
+		printlns(bottomMsgArea, `Game: ${code}`, "", "Scores:");
 
 
-
-		let players = [], // grab players from msg
+		// grab players from msg
+		let players = new Map(),
+		    rankings = [],
 		    len = msg.length;
-		let i = 2;
-		for (; i < len; i++) {
-			let words = msg[i].split(" ");	
-			if (words[0] === "forest") {
-				break;
-			}
-			players.push({emoji: words[0], row: words[1], col: words[2]});
+		for (let i = 5; i < len; i += 5) {
+			players.set( msg[i+1],
+				{ emoji: msg[i], row: Number(msg[i+2]), col: Number(msg[i+3]), score: Number(msg[i+4]) }
+			);
+			rankings.push(msg[i+1]);
 		}
 
 
-		let row = -1,
-		    col = -1;
-		for (let p of players) { // put players on forest
-			let cell = document.getElementById(`${p.row} ${p.col}`);
-			if (p.emoji === emoji) {
-				row = p.row;
-				col = p.col;
+		// sort rankings
+		rankings = myQuickSort(rankings, players);
+		
+
+		// put players on forest and show scores
+		row = -1;
+		col = -1;
+		for (let n of rankings) {
+			let e = players.get(n).emoji,
+			    r = players.get(n).row,
+			    c = players.get(n).col,
+			    s = players.get(n).score;
+
+			if (s > 0) {
+				let div = document.createElement("div");
+				div.id = `score ${e}`;
+				div.appendChild(document.createTextNode(`${e} ${n} ${s}`))
+				bottomMsgArea.appendChild(div);
 			}
 
+			if (e === emoji) {
+				row = r;
+				col = c;
+			}
+
+			let cell = document.getElementById(`${r} ${c}`);
 			if (amSeeker) { // seeker sees no one else
-				if (p.emoji === emoji) {
+				if (e === emoji) {
 					cell.innerHTML = emoji;
-					makeNearbyTreesOccupiable(p.row, p.col);
+					makeNearbyTreesOccupiable(r, c);
 				}
 			} else { // hider sees everyone
 				cell.classList.add("occupied");
-				if (p.emoji == seeker) {
+				if (e == seeker) {
 					cell.innerHTML = seekerEmoji;
 				} else {
-					cell.innerHTML = p.emoji;
+					cell.innerHTML = e;
 				}
 			}
 		}
 
 		if (!amSeeker) {
 			makeNearbyTreesOccupiable(row, col);
-		}
+		} // it's important that seekers make their nearby trees
+		  // occupiable in the above if statement. that way they
 
 		sendMsg("ready to go");
-		
+	}
 		break;
 	case "too few hiders":
 		if (playing) {
@@ -224,6 +292,18 @@ socket.onmessage = function (e) {
 		addToJoinedList(...msg.slice(4,));
 		break;
 	case "winner": // emoji // name
+	{
+		clearScreen();
+		let e = msg[1],
+		    n = msg[2];
+		printlns(topMsgArea, "Winner!", "");
+		let div = document.createElement("div");
+		div.classList.add("big");
+		div.appendChild(document.createTextNode(`${e} ${n}`));
+		topMsgArea.appendChild(div);
+		printlns(topMsgArea, "", "Starting next round!")
+		setTimeout( () => sendMsg("ready for next setup"), 2000);
+	}
 		break;
 	default:
 		console.log("\n! unknown message:");
@@ -289,6 +369,15 @@ function clearScreen() {
 	bottomMsgArea.innerHTML = "";
 }
 
+function someoneElseLeft_updateClasses(r, c) {
+	let cell = document.getElementById(`${r} ${c}`);
+	cell.innerHTML = forest[r][c];
+	cell.classList.remove("occupied");
+	if ((c <= col+1 && c >= col-1) && (r <= row+1 && r >= row-1)) {
+		cell.classList.add("occupiable");
+	}
+}
+
 function seekerWaitingForPlayersScreen() {
 	clearScreen();
 	topMsgArea.innerHTML = `
@@ -349,7 +438,7 @@ function start() {
 function sendMsg() {
 	let msg = Array.from(arguments).join("\n")
 	socket.send(msg)
-	console.log("message sent:")
+	console.log("📝 message sent:")
 	console.log(msg)
 }
 
@@ -435,6 +524,7 @@ function makeNearbyTreesOccupiable(row, col) {
 }
 
 function makeForest(treesPerRow, trees) {
+	forest = [];
 	trees = Array.from(trees);
 
 	let row = 0,
@@ -485,7 +575,7 @@ function reportProblemWithDesiredName(desiredName) {
 	bottomMsgArea.innerHTML = "";
 	switch (desiredName.reason) {
 	case "empty string":
-		printlns(bottomMsgArea, "What&apos;s your name?");
+		printlns(bottomMsgArea, "What's your name?");
 		break;
 	case "illegal character":
 		printlns(bottomMsgArea, "Can't use this", "character in a name:", desiredName.str, "", "Try a different name 😄");
@@ -532,6 +622,34 @@ function illegalChar(name) {
 		return "";
 	} else {
 		return illChar[0];
+	}
+}
+
+function myQuickSort(sub, players) {
+	let len = sub.length;
+
+	switch (len) {
+	case 0:
+		return [];
+	case 1:
+		return sub;
+	default:
+		let subA = [],
+		    subB = [];
+
+		// pivot is 0
+		for (let i = 1; i < len; i++) {
+			if (
+			  players.get(sub[i]).score  >  players.get(sub[0]).score ||
+			 (players.get(sub[i]).score === players.get(sub[0]).score && sub[i] < sub[0])
+			) {
+				subA.push(sub[i]);
+			} else {
+				subB.push(sub[i]);
+			}
+		}
+
+		return myQuickSort(subA, players).concat(sub[0], myQuickSort(subB, players));
 	}
 }
 
