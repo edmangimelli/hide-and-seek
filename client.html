@@ -439,6 +439,7 @@ function enterCodeScreen() {
 	};
 
 	document.getElementById("join").addEventListener("click", joinGame);
+	document.getElementById("code").addEventListener("keydown", e => {if (e.keyCode === 13) {joinGame()}});
 }
 
 function clearScreen() {

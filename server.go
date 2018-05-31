@@ -102,7 +102,6 @@ func main() {
 					for _, p := range games[code].players {
 						p.connChan <- "game can't begin; seeker left"
 					}
-					delete(games, code)
 					log.Printf("\nGame deleted: %s\n", code)
 				} else {
 					for _, p := range games[code].players {
@@ -123,7 +122,17 @@ func main() {
 				// seeker is still in the round
 				switch actives {
 				case 0: // should be an impossible case
-					log.Printf("\nBUG: Impossible case. Round continued with 1 active player and then they left.\n")
+					//log.Printf("\nBUG: Impossible case. Round continued with 1 active player and then they left.\n")
+					// 2 players were playing with no founds or waitings.
+					// 1 person leaves.
+					// the person remaining is given the start screen.
+					// somebody (or several people) joins.
+					// now you have 1 active and 1 (or more) waiting
+					// the active person leaves
+					// now you have 0 actives
+					for _, p := range games[code].players {
+						p.connChan <- "game can't begin; seeker left"
+					}
 				case 1:
 					if (founds + waitings) > 0 {
 						for _, p := range games[code].players {
