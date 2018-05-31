@@ -554,40 +554,6 @@ function printlns() {
 	}
 }
 
-/*
-function println() {
-	let body = document.getElementsByTagName("body")[0];
-	let args = Array.from(arguments)
-	for (let i = 0; i < args.length; i++) {
-		if (i > 0) {
-			body.appendChild(document.createElement(" "));
-		}
-		body.appendChild(document.createTextNode(args[i]));
-	}
-	body.appendChild(document.createElement("br"));
-}
-
-function print() {
-	let body = document.getElementsByTagName("body")[0];
-	for (let text of Array.from(arguments)) {
-		body.appendChild(document.createTextNode(text));
-	}
-}
-*/
-/*
-function hiderMove(event) {
-	let id = event.target.id.split(" ");
-	let row = Number(id[0]),
-	    col = Number(id[1]);
-
-	if (!event.target.classList.contains("occupiable")) {
-		return // cannot move to empty spaces
-	}
-
-	sendMsg(`move to\n${row}\n${col}`);
-}
-*/
-
 function move(event) {
 	if (!go) { return };
 	if (!event.target.classList.contains("occupiable")) {
