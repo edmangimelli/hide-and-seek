@@ -138,7 +138,8 @@ func main() {
 						}
 					}
 				default: // seeker is still in the round, and there's at least 1 hider
-					if !reportWinnerIfThereIsOne(games[code]) { // there may be an automatic winner (multiHiderRound and only 1 hider left)
+					winner := reportWinnerIfThereIsOne(games[code])
+					if winner == "" { // there may be an automatic winner (multiHiderRound and only 1 hider left)
 						for _, p := range games[code].players {
 							p.connChan <- fmt.Sprintf("left\n%s\n%s\n%d\n%d", emoji, name, row, col)
 						}
@@ -232,7 +233,16 @@ func main() {
 
 						if occ != "" {
 							games[code].players[occ].found = true
-							if !reportWinnerIfThereIsOne(games[code]) {
+							winner := reportWinnerIfThereIsOne(games[code])
+							if winner != "" {
+								games[code].players[name].movesThisRound++
+								games[code].players[name].totalMoves++
+								if games[code].multiHiderRound {
+									games[code].players[winner].score++
+								}
+								mutex.Unlock()
+								break
+							} else {
 								for _, p := range games[code].players { // tell non-waiting players
 									if p.waitingToJoin { continue }
 									p.connChan <- fmt.Sprintf("found\n%s\n%s\n%d\n%d", games[code].players[occ].emoji, occ, row, col)
@@ -245,6 +255,8 @@ func main() {
 							p.connChan <- fmt.Sprintf("moved\n%s\nfrom\n%d\n%d\nto\n%d\n%d", emoji, games[code].players[name].row, games[code].players[name].col, row, col)
 						}
 
+						games[code].players[name].movesThisRound++
+						games[code].players[name].totalMoves++
 						games[code].players[name].row = row
 						games[code].players[name].col = col
 
@@ -259,6 +271,8 @@ func main() {
 							p.connChan <- fmt.Sprintf("moved\n%s\nfrom\n%d\n%d\nto\n%d\n%d", emoji, games[code].players[name].row, games[code].players[name].col, row, col)
 						}
 
+						games[code].players[name].movesThisRound++
+						games[code].players[name].totalMoves++
 						games[code].players[name].row = row
 						games[code].players[name].col = col
 					}
@@ -304,8 +318,7 @@ func main() {
 					mutex.Lock()
 					games[code].players[name].ready = true
 					if everyonesReady(games[code]) {
-						for _, p := range games[code].players { // tell non-waiting players 
-							if p.waitingToJoin { continue }
+						for _, p := range games[code].players {
 							p.ready = false
 							p.connChan <- "go!"
 						}
@@ -315,7 +328,6 @@ func main() {
 				case "ready for next setup":
 					mutex.Lock()
 					games[code].players[name].ready = true
-fmt.Print(games[code].players) // quick debug
 					if everyonesReady(games[code]) {
 						newSetup(games[code])
 					}
@@ -403,12 +415,14 @@ func onlyOneHiderLeft(g *game) string {
 }
 
 func everyonesReady(g *game) bool {
-	for _, p := range g.players {
-		if p.waitingToJoin { continue }
+	for n, p := range g.players {
+		//if p.waitingToJoin { continue }
 		if !p.ready {
+			log.Printf("\nnot ready: %s\n", n)
 			return false
 		}
 	}
+	log.Printf("\neveryone's ready.\n")
 	return true
 }
 
@@ -464,11 +478,17 @@ func newSetup(g *game) {
 		reply += string(treeLine)
 	}
 
-	for n := range g.players {
-		g.players[n].found = false;
-		g.players[n].ready = false;
-		g.players[n].waitingToJoin = false;
-		reply += fmt.Sprintf("\n%s\n%s\n%d\n%d\n%d", g.players[n].emoji, n, g.players[n].row, g.players[n].col, g.players[n].score)
+	for n, p := range g.players {
+		p.found = false;
+		p.ready = false;
+		p.waitingToJoin = false;
+		p.movesThisRound = 0
+		if p.seeker {
+			p.numberOfTimesHasBeenSeeker++
+		} else {
+			p.numberOfTimesHasBeenHider++
+		}
+		reply += fmt.Sprintf("\n%s\n%s\n%d\n%d\n%d", p.emoji, n, p.row, p.col, p.score)
 	}
 
 	for _, v := range g.players { // tell everyone
@@ -520,7 +540,7 @@ func randomlyAppointSeeker(g *game) {
 	}
 }
 
-func reportWinnerIfThereIsOne(g *game) bool {
+func reportWinnerIfThereIsOne(g *game) string {
 
 	if g.multiHiderRound {
 		last := onlyOneHiderLeft(g)
@@ -530,22 +550,22 @@ func reportWinnerIfThereIsOne(g *game) bool {
 				p.connChan <- fmt.Sprintf("winner\n%s\n%s", g.players[last].emoji, last)
 			}
 			g.players[last].seeker = true
-			return true
+			return last
 		}
 	} else {
 		if everyonesFound(g) {
-			var seeker, hider *player
-			for _, p := range g.players {
-				if p.seeker { seeker = p }
-				if p.found  { hider  = p }
+			var seeker, hider string
+			for n, p := range g.players {
+				if p.seeker { seeker = n }
+				if p.found  { hider  = n }
 				p.connChan <- "round over\n2 player game"
 			}
-			seeker.seeker = false
-			hider.seeker = true
-			return true
+			g.players[seeker].seeker = false
+			g.players[hider].seeker = true
+			return hider
 		}
 	}
-	return false
+	return ""
 }
 
 func profilePlayer(p *player) int {

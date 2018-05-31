@@ -43,6 +43,7 @@ let code = "",   //  the game you're playing in
 let forest = [],      //  holds a copy of the forest for redrawing
     seeker = "",      //  who's the seeker
     amSeeker = false, //  are you the seeker
+    found = false,
     row = -1,
     col = -1,
     go = false,       //  received go signal (controls whether or not move() works)
@@ -73,6 +74,7 @@ socket.onmessage = function (e) {
 		    c = Number(msg[4]);
 
 		if (e === emoji) { // you were found
+			found = true;
 			occs = Array.from(document.getElementsByClassName("occupiable"));
 			for (let o of occs) {
 				o.classList.remove("occupiable");
@@ -229,13 +231,14 @@ socket.onmessage = function (e) {
 	case "setup": // seeker EMOJI // forest // TREES_PER_ROW // TREES // EMOJI // NAME // ROW // COL // SCORE // ... 
 	// all players receive this msg
 	{
-		// forest, seeker, amSeeker, go, playing
+		// forest, seeker, amSeeker, go, playing, found, row, col
 		//  are set using this msg
 
 		clearScreen();
 
 		playing = true;
 		go = false;
+		found = false;
 
 		seeker = msg[1].split(" ")[1];
 
@@ -445,6 +448,7 @@ function clearScreen() {
 }
 
 function someoneElseLeft_updateClasses(r, c) { // the reason we need to keep track of our own row and col
+	if (found) { return }
 	let cell = document.getElementById(`${r} ${c}`);
 	cell.innerHTML = forest[r][c];
 	cell.classList.remove("occupied");
@@ -605,6 +609,7 @@ function hasClass(thisClass, classes) {
 */
 
 function makeNearbyTreesOccupiable(row, col) {
+	if (found) { return }
 	row = Number(row);
 	col = Number(col);
 
