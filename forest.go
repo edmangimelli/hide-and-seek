@@ -4,7 +4,7 @@ import "strings"
 
 type forest [][]rune
 
-const treesPerPlayer = 8
+const treesPerPlayer = 5
 
 func growForest(players map[string]*player) forest {
 	//var trees = []rune("🌲🌳🌴🌵")

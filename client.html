@@ -8,12 +8,12 @@
 		input {width: 150px; font-size: 15px; font-family: sans-serif;}
 		button {font-size: 15px; font-family: sans-serif;}
 		div {margin: 0 auto;}
-		table {margin: 0 auto; font-size: 250%; border-collapse: collapse;}
+		table {table-layout: fixed; margin: 0 auto; font-size: 250%; border-collapse: collapse;}
+		td {width: 40px; height: 40px;}
 		.bold {font-weight: bold}
 		.light {font-style: italic; font-size: 85%;}
 		.occupiable {background-color: #ffccd4;}
 		.unvisited {text-decoration: underline;}
-		.big {font-size: 300%;}
 	</style>
 </head>
 <body>
@@ -65,6 +65,7 @@ socket.onmessage = function (e) {
 	msg = e.data.split("\n")
 	switch (msg[0]) {
 	case "found": // emoji // name // ROW // COL
+	// only non-waiting players receive this msg
 	{
 		let e = msg[1],
 		    n = msg[2],
@@ -86,34 +87,51 @@ socket.onmessage = function (e) {
 	}
 		break;
 	case "game initialized": // code // emoji // name
+	// only someone starting a new game receives this msg
 		code = msg[1];
 		emoji = msg[2];
 		name = msg[3];
 		seekerWaitingForPlayersScreen();
 		break;
+	case "game can't begin; seeker left":
+		// situation where someone initializes a game and then leaves before starting it
+		// all players receive this msg (but none will ever be playing by definition)
+		clearScreen();
+		printlns(topMsgArea,
+			{style: "font-size: 150%;"}, "Seeker left!",
+			"",
+			{style: "font-size: 125%; font-style: italic;"}, "Refresh page and try",
+			{style: "font-size: 125%; font-style: italic;"}, "joining a different game",
+			{style: "font-size: 125%; font-style: italic;"}, "or starting your own.",
+		);
+		break;
 	case "go!":
 		go = true;
 		break;
 	case "joined": // emoji // name
+	// all players receive this msg
 		if (!playing) {
 			addToJoinedList(msg[1], msg[2]);
 		}
 		break;
 	case "left": // emoji // name // row // col
-	{
+	// all players receive this msg
+	// a player could leave before the first round
 		if (playing) {
 			let e = msg[1],
-			    n = msg[2],
-			    r = Number(msg[3]),
-			    c = Number(msg[4]);
-			forestArea.appendChild(document.createTextNode(`${e} ${n} left!`));
-			someoneElseLeft_updateClasses(r, c);
+			    n = msg[2];
+			printlns(forestArea, {style: "font-style: italic;"}, `${e} ${n} left!`);
+			if (msg[3] !== undefined) {
+				let r = Number(msg[3]),
+				    c = Number(msg[4]);
+				someoneElseLeft_updateClasses(r, c);
+			}
 		} else {
 			removeFromJoinedList(msg[1]);
 		}
-	}
 		break;
 	case "moved": // EMOJI // from // ROW // COL // to // ROW // COL
+	// only non-waiting player receive this msg
 	{
 		let movingEmoji = msg[1],
 		    fromRow = msg[3],
@@ -129,6 +147,10 @@ socket.onmessage = function (e) {
 		// print correct emoji
 		if (amSeeker) {
 			if (movingEmoji == emoji) {
+				toCell.classList.remove("unvisited");
+				if (document.getElementsByClassName("unvisited")[0] === undefined) {
+					sendMsg("remove tree", toRow, toCol);
+				}
 				toCell.innerHTML = emoji;
 			}
 		} else {
@@ -146,34 +168,66 @@ socket.onmessage = function (e) {
 		if (movingEmoji == emoji) {
 			row = toRow;
 			col = toCol;
-//			if (!amSeeker) {
-				for (let occ of Array.from(document.getElementsByClassName("occupiable"))) {
-					occ.classList.remove("occupiable");
-				}
-//			}
-			makeNearbyTreesOccupiable(toRow, toCol);
 		}
+		for (let occ of Array.from(document.getElementsByClassName("occupiable"))) {
+			occ.classList.remove("occupiable");
+		}
+		makeNearbyTreesOccupiable(row, col);
 	}
 		break;
 	case "name is taken": // name
+	// only one player will receive this msg, and they won't have begun playing
 		mainScreen();
 		reportProblemWithDesiredName({reason: msg[0], str: msg[1]});
 		break;
 	case "no such game": // code
+	// only one player will receive this msg, and they won't have begun playing
 		bottomMsgArea.innerHTML = "";
 		printlns(bottomMsgArea, "Can't find that game. 😕", "", "Is that the right code?");
 		break;
-	case "round over": // seeker left | 2 player game
+	case "remove tree": // row // col
+	{
+		let r = Number(msg[1]),
+		    c = Number(msg[2]);
+		let cell = document.getElementById(`${r} ${c}`);
+		cell.classList.remove("tree");
+		forest[r][c] = " ";
+	}
+		break;
+	case "round over": // seeker left | 2 player game | too few hiders
+	// all players receive this msg
 		clearScreen();
-		if (msg[1] == "seeker left") {
-			printlns(topMsgArea, "Seeker left!", "", "Starting next round!")
-			setTimeout( () => sendMsg("ready for next setup"), 2000);
-		} else {
-			printlns(topMsgArea, "Hider found!", "", "Starting next round!")
-			setTimeout( () => sendMsg("ready for next setup"), 2000);
+		if (playing) {
+			switch (msg[1]) {
+			case "seeker left":
+				printlns(topMsgArea,
+					{style: "font-size: 150%;"}, "Seeker left!",
+					"",
+					{style: "font-size: 125%; font-style: italic;"}, "Starting next round!",
+				);
+				break;
+			case "2 player game":
+				printlns(topMsgArea,
+					{style: "font-size: 150%;"}, "Hider found!",
+					"",
+					{style: "font-size: 125%; font-style: italic;"}, "Starting next round!",
+				);
+				break;
+			case "too few hiders":
+				printlns(topMsgArea,
+					{style: "font-size: 150%;"}, "Too few hiders 😕",
+					"",
+					{style: "font-size: 125%; font-style: italic;"}, "Starting next round!",
+				);
+				break;
+			}
+			setTimeout(() => sendMsg("ready for next setup"), 2000);
+		} else { // waitingToJoin
+			sendMsg("ready for next setup")
 		}
 		break;
 	case "setup": // seeker EMOJI // forest // TREES_PER_ROW // TREES // EMOJI // NAME // ROW // COL // SCORE // ... 
+	// all players receive this msg
 	{
 		// forest, seeker, amSeeker, go, playing
 		//  are set using this msg
@@ -184,7 +238,6 @@ socket.onmessage = function (e) {
 		go = false;
 
 		seeker = msg[1].split(" ")[1];
-console.log("###", seeker, emoji) // quick debug
 
 		if (seeker === emoji) {
 			amSeeker = true;
@@ -201,18 +254,23 @@ console.log("###", seeker, emoji) // quick debug
 			topMsg = `Hide, ${name}!`;
 		}
 		printlns(topMsgArea, topMsg);
-		printlns(bottomMsgArea, `Game: ${code}`, "", "Scores:");
+		printlns(bottomMsgArea, `Game: ${code}`);
 
 
 		// grab players from msg
 		let players = new Map(),
 		    rankings = [],
+		    allScoresAreZero = true,
 		    len = msg.length;
 		for (let i = 5; i < len; i += 5) {
 			players.set( msg[i+1],
 				{ emoji: msg[i], row: Number(msg[i+2]), col: Number(msg[i+3]), score: Number(msg[i+4]) }
 			);
 			rankings.push(msg[i+1]);
+			if (Number(msg[i+4]) > 0) { allScoresAreZero = false; }
+		}
+		if (!allScoresAreZero) {
+			printlns(bottomMsgArea, "", "Scores:");
 		}
 
 
@@ -229,11 +287,15 @@ console.log("###", seeker, emoji) // quick debug
 			    c = players.get(n).col,
 			    s = players.get(n).score;
 
-			if (s > 0) {
-				let div = document.createElement("div");
-				div.id = `score ${e}`;
-				div.appendChild(document.createTextNode(`${e} ${n} ${s}`))
-				bottomMsgArea.appendChild(div);
+			//if (s > 0) {
+			//	let div = document.createElement("div");
+			//	div.id = `score ${e}`;
+			//	div.appendChild(document.createTextNode(`${e} ${n} ${s}`))
+			//	bottomMsgArea.appendChild(div);
+			//}
+
+			if (!allScoresAreZero) {
+				printlns(bottomMsgArea, `${e} ${n} ${s}`);
 			}
 
 			if (e === emoji) {
@@ -245,7 +307,8 @@ console.log("###", seeker, emoji) // quick debug
 			if (amSeeker) { // seeker sees no one else
 				if (e === emoji) {
 					cell.innerHTML = emoji;
-					makeNearbyTreesOccupiable(r, c);
+					cell.classList.remove("unvisited");
+					//makeNearbyTreesOccupiable(r, c);
 				}
 			} else { // hider sees everyone
 				cell.classList.add("occupied");
@@ -257,15 +320,18 @@ console.log("###", seeker, emoji) // quick debug
 			}
 		}
 
-		if (!amSeeker) {
+		//if (!amSeeker) {
 			makeNearbyTreesOccupiable(row, col);
-		} // it's important that seekers make their nearby trees
+		//} // it's important that seekers make their nearby trees
 		  // occupiable in the above if statement. that way they
 
 		sendMsg("ready to go");
 	}
 		break;
 	case "too few hiders":
+	// always received by 1 player
+	// either a round ended and another can't begin (because too few)
+	// a game can't begin because too few (before round 0)
 		if (playing) {
 			playing = false;
 			seekerWaitingForPlayersScreen();
@@ -274,10 +340,12 @@ console.log("###", seeker, emoji) // quick debug
 		printlns(bottomMsgArea, "Too few hiders! 😕", "", "Ask some people to join!");
 		break;
 	case "too many games in session":
+	// msg received by 1 player
 		bottomMsgArea.innerHTML = "";
 		printlns(bottomMsgArea, "Whoa!", "", "The server can't handle", "any more games!", "", "Try again later", "or join a game.");
 		break;
 	case "wait for next round": // code // yourEmoji // yourName // emoji // name // ...
+	// msg received by 1 player
 		code = msg[1];
 		emoji = msg[2];
 		name = msg[3];
@@ -285,6 +353,7 @@ console.log("###", seeker, emoji) // quick debug
 		addToJoinedList(...msg.slice(4,));
 		break;
 	case "wait for start": // code // yourEmoji // yourName // emoji // name // ...
+	// msg received by 1 player
 		code = msg[1];
 		emoji = msg[2];
 		name = msg[3];
@@ -292,18 +361,24 @@ console.log("###", seeker, emoji) // quick debug
 		addToJoinedList(...msg.slice(4,));
 		break;
 	case "winner": // emoji // name
-	{
-		clearScreen();
-		let e = msg[1],
-		    n = msg[2];
-		printlns(topMsgArea, "Winner!", "");
-		let div = document.createElement("div");
-		div.classList.add("big");
-		div.appendChild(document.createTextNode(`${e} ${n}`));
-		topMsgArea.appendChild(div);
-		printlns(topMsgArea, "", "Starting next round!")
-		setTimeout( () => sendMsg("ready for next setup"), 2000);
-	}
+	// msg received by all players
+		if (playing) {
+			clearScreen();
+			let e = msg[1],
+			    n = msg[2];
+			printlns(topMsgArea,
+				{style: "font-size: 150%;"}, "Winner!",
+				"",
+				{style: "font-size: 500%;"}, e,
+				{style: "font-size: 200%;"}, n,
+				"",
+				"",
+				{style: "font-style: italic;"}, "Starting next round!",
+			);
+			setTimeout( () => sendMsg("ready for next setup"), 3000);
+		} else {
+			sendMsg("ready for next setup");
+		}
 		break;
 	default:
 		console.log("\n! unknown message:");
@@ -357,7 +432,7 @@ function enterCodeScreen() {
 	`;
 
 	joinGame = function() {
-		sendMsg("join", document.getElementById("code").value, desiredName.str);
+		sendMsg("join", document.getElementById("code").value.toUpperCase(), desiredName.str);
 	};
 
 	document.getElementById("join").addEventListener("click", joinGame);
@@ -369,7 +444,7 @@ function clearScreen() {
 	bottomMsgArea.innerHTML = "";
 }
 
-function someoneElseLeft_updateClasses(r, c) {
+function someoneElseLeft_updateClasses(r, c) { // the reason we need to keep track of our own row and col
 	let cell = document.getElementById(`${r} ${c}`);
 	cell.innerHTML = forest[r][c];
 	cell.classList.remove("occupied");
@@ -394,6 +469,7 @@ function seekerWaitingForPlayersScreen() {
 	<br>
 	Once everyone has<br>
 	joined click start.<br>
+	<br>
 	<button id="start">Start</button>
 
 	`;
@@ -447,10 +523,29 @@ function printlns() {
 	len = args.length;
 	args[0].appendChild(document.createElement("br"));
 	for (let i = 1; i < len; i++) {
-		if (!(args[i] === "")) {
-			args[0].appendChild(document.createTextNode(args[i]));
+		let elt = document.createElement("div");
+
+		if (typeof args[i] === "object") {
+			if (args[i].hasOwnProperty("span")) {
+				elt = document.createElement("span");
+			}
+			for (let p of ["class", "style", "id"]) {
+				if (args[i].hasOwnProperty(p)) {
+					elt.setAttribute(p, args[i][p]);
+				}
+			}
+			i++;
+			if (i == len) { break; }
 		}
-		args[0].appendChild(document.createElement("br"));
+	
+		switch (args[i]) {	
+		case "":
+			args[0].appendChild(document.createElement("br"));
+			break;
+		default:
+			elt.appendChild(document.createTextNode(args[i]));
+			args[0].appendChild(elt);
+		}
 	}
 }
 
@@ -474,7 +569,7 @@ function print() {
 	}
 }
 */
-
+/*
 function hiderMove(event) {
 	let id = event.target.id.split(" ");
 	let row = Number(id[0]),
@@ -486,11 +581,12 @@ function hiderMove(event) {
 
 	sendMsg(`move to\n${row}\n${col}`);
 }
+*/
 
 function move(event) {
 	if (!go) { return };
 	if (!event.target.classList.contains("occupiable")) {
-		return; // cannot move to empty spaces
+		return;
 	}
 	id = event.target.id.split(" ");
 	sendMsg(`move to\n${id[0]}\n${id[1]}`);
@@ -515,9 +611,15 @@ function makeNearbyTreesOccupiable(row, col) {
 	for (let r = row-1; r <= row+1; r++) {
 		for (let c = col-1; c <= col+1; c++) {
 			if (r === row && c === col) { continue; }
-			cell = document.getElementById(`${r} ${c}`);
-			if (cell && cell.classList.contains("tree") && !cell.classList.contains("occupied")) { //seekers don't use the occupied class
+			let cell = document.getElementById(`${r} ${c}`);
+			if (cell === null) { continue; }
+			if (amSeeker) {
 				cell.classList.add("occupiable");
+	
+			} else {
+				if (cell.classList.contains("tree") && !cell.classList.contains("occupied")) { //seekers don't use the occupied class
+					cell.classList.add("occupiable");
+				}
 			}
 		}
 	}
@@ -538,9 +640,10 @@ function makeForest(treesPerRow, trees) {
 		for (let col=0; col < treesPerRow; col++) {
 			let td = document.createElement("td");
 			td.id = `${row} ${col}`;
+			td.addEventListener("click", move);
 			if (trees[t] !== " ") {
-				td.className += "tree";
-				td.addEventListener("click", move);
+				td.classList.add("tree");
+				if (amSeeker) { td.classList.add("unvisited"); }
 			}
 			td.appendChild(document.createTextNode(trees[t]));
 			tr.appendChild(td);
@@ -555,20 +658,20 @@ function makeForest(treesPerRow, trees) {
 	forestArea.appendChild(table);
 }
 
-function addToJoinedList(emoji, name) {
+function addToJoinedList() {
 	joinedList = document.getElementById("joined");
 	for (let i = 0; i < arguments.length; i+=2) {
 		let e = arguments[i];
 		let n = arguments[i+1];
 		div = document.createElement("div");
-		div.setAttribute("id", e);
+		div.setAttribute("id", `joined ${e}`);
 		div.appendChild(document.createTextNode(`${e} ${n}`));
 		joinedList.appendChild(div);
 	}
 }
 
-function removeFromJoinedList(emoji) {
-	document.getElementById("joined").removeChild(document.getElementById(emoji));
+function removeFromJoinedList(e) {
+	document.getElementById("joined").removeChild(document.getElementById(`joined ${e}`));
 }
 
 function reportProblemWithDesiredName(desiredName) {
@@ -616,7 +719,7 @@ function illegalChar(name) {
 		return "\n";
 	}
 
-	let illChar = /[^\-\w.()[\]]/.exec(name);
+	let illChar = /[^ \-\w.()[\]]/.exec(name);
 
 	if (illChar == null) {
 		return "";

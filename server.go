@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -59,6 +58,13 @@ var upgrader = websocket.Upgrader{
 
 var mutex = sync.Mutex{}
 
+const (
+	active = iota
+	found = iota
+	waiting = iota
+	waitingAndFound = iota
+)
+
 func main() {
 	http.HandleFunc("/socket", func(w http.ResponseWriter, r *http.Request) {
 		conn, _ := upgrader.Upgrade(w, r, nil)
@@ -66,35 +72,85 @@ func main() {
 		connChan := make(chan string)
 		code, emoji, name := "", "", conn.RemoteAddr().String()
 
-		conn.SetCloseHandler(func(codeNumber int, text string) error {
-			if name == "" || code == "" { return errors.New("left before joing game.") }
+		conn.SetCloseHandler(func(codeNumber int, text string) error { // PLAYER LEAVES
+
+			if name == "" || code == "" { return nil }
+
 			mutex.Lock()
-			switch len(games[code].players) {
-			case 1: // they were the only person left. delete the game. nobody needs to be notified.
+			defer mutex.Unlock()
+
+			row := games[code].players[name].row
+			col := games[code].players[name].col
+			wasSeeker := games[code].players[name].seeker
+			gonePlayer := profilePlayer(games[code].players[name])
+			delete(games[code].players, name)
+			log.Printf("\nPlayer deleted: %s/%s\n", code, name)
+			actives, founds, waitings, waitingAndFounds := profilePlayers(games[code])
+			if waitingAndFounds > 0 {
+				log.Printf("\nBUG: some players are both waitingToJoin and found.\n")
+			}
+			waitings += waitingAndFounds
+
+			if len(games[code].players) == 0 {
 				delete(games, code)
-			case 2: // this needs to be fixed in the event that the only player left is waitingToJoin
-				delete(games[code].players, name)
-				for _, p := range games[code].players { // tell only player
-					p.connChan <- "too few hiders"
-				}
-			default: // send left message and maybe send winner message
-				for n, p := range games[code].players { // tell other players
-					if n != name {
-						p.connChan <- fmt.Sprintf("left\n%s\n%s\n%d\n%d", emoji, name, games[code].players[name].row, games[code].players[name].col)
+				log.Printf("\nGame deleted: %s\n", code)
+				return nil
+			}
+
+			if !games[code].started {
+				if wasSeeker {
+					for _, p := range games[code].players {
+						p.connChan <- "game can't begin; seeker left"
+					}
+					delete(games, code)
+					log.Printf("\nGame deleted: %s\n", code)
+				} else {
+					for _, p := range games[code].players {
+						p.connChan <- fmt.Sprintf("left\n%s\n%s", emoji, name)
 					}
 				}
-				if (games[code].players[name].seeker) {
-					for _, p := range games[code].players { // tell other players. who aren't waiting to join
-						if p.waitingToJoin { continue }
+				return nil
+			}
+
+			switch gonePlayer {
+			case active:
+				if wasSeeker {
+					for _, p := range games[code].players {
 						p.connChan <- "round over\nseeker left"
 					}
-				} else {
-					reportWinnerIfThereIsOne(games[code])
+					return nil
 				}
-				delete(games[code].players, name)
+				// seeker is still in the round
+				switch actives {
+				case 0: // should be an impossible case
+					log.Printf("\nBUG: Impossible case. Round continued with 1 active player and then they left.\n")
+				case 1:
+					if (founds + waitings) > 0 {
+						for _, p := range games[code].players {
+							// tell everyone (1 active player (the seeker), and any founds or waitings)
+							p.connChan <- "round over\ntoo few hiders"
+						}
+						// note: seeker does not change
+					} else {
+						for _, p := range games[code].players { // only 1 player
+							p.connChan <- "too few hiders" // tell only player
+							p.seeker = true // make them seeker (if they get more people to join)
+						}
+					}
+				default: // seeker is still in the round, and there's at least 1 hider
+					if !reportWinnerIfThereIsOne(games[code]) { // there may be an automatic winner (multiHiderRound and only 1 hider left)
+						for _, p := range games[code].players {
+							p.connChan <- fmt.Sprintf("left\n%s\n%s\n%d\n%d", emoji, name, row, col)
+						}
+					}
+				}
+			case found, waiting, waitingAndFound:
+				for _, p := range games[code].players {
+					p.connChan <- fmt.Sprintf("left\n%s\n%s", emoji, name)
+				}
 			}
-			mutex.Unlock()
-			return errors.New("left.")
+
+			return nil
 		})
 
 
@@ -136,9 +192,9 @@ func main() {
 					}
 					log.Printf("\nplayer has joined: %s/%s\n", code, name)
 
-					for n, v := range games[code].players { // tell other players
+					for n, p := range games[code].players { // tell other players
 						if n != name { // don't need to send the message to yourself
-							v.connChan <- fmt.Sprintf("joined\n%s\n%s", emoji, name)
+							p.connChan <- fmt.Sprintf("joined\n%s\n%s", emoji, name)
 						}
 					}
 
@@ -164,11 +220,11 @@ func main() {
 					col, _ := strconv.Atoi(msg[2])
 
 					mutex.Lock()
-					if games[code].wood[row][col] == ' ' { // can't move to non-tree
-						log.Printf("\ncan't move there. no tree.\n")
-						mutex.Unlock()
-						break
-					}
+					//if games[code].wood[row][col] == ' ' { // can't move to non-tree
+					//	log.Printf("\ncan't move there. no tree.\n")
+					//	mutex.Unlock()
+					//	break
+					//}
 
 					occ := occupant(row, col, games[code])
 
@@ -177,14 +233,16 @@ func main() {
 						if occ != "" {
 							games[code].players[occ].found = true
 							if !reportWinnerIfThereIsOne(games[code]) {
-								for _, v := range games[code].players { // tell other players
-									v.connChan <- fmt.Sprintf("found\n%s\n%s\n%d\n%d", games[code].players[occ].emoji, occ, row, col)
+								for _, p := range games[code].players { // tell non-waiting players
+									if p.waitingToJoin { continue }
+									p.connChan <- fmt.Sprintf("found\n%s\n%s\n%d\n%d", games[code].players[occ].emoji, occ, row, col)
 								}
 							}
 						}
 
-						for _, v := range games[code].players { // tell other players
-							v.connChan <- fmt.Sprintf("moved\n%s\nfrom\n%d\n%d\nto\n%d\n%d", emoji, games[code].players[name].row, games[code].players[name].col, row, col)
+						for _, p := range games[code].players { // tell non-waiting players
+							if p.waitingToJoin { continue }
+							p.connChan <- fmt.Sprintf("moved\n%s\nfrom\n%d\n%d\nto\n%d\n%d", emoji, games[code].players[name].row, games[code].players[name].col, row, col)
 						}
 
 						games[code].players[name].row = row
@@ -196,8 +254,9 @@ func main() {
 							break
 						}
 
-						for _, v := range games[code].players { // tell other players
-							v.connChan <- fmt.Sprintf("moved\n%s\nfrom\n%d\n%d\nto\n%d\n%d", emoji, games[code].players[name].row, games[code].players[name].col, row, col)
+						for _, p := range games[code].players { // tell non-waiting players
+							if p.waitingToJoin { continue }
+							p.connChan <- fmt.Sprintf("moved\n%s\nfrom\n%d\n%d\nto\n%d\n%d", emoji, games[code].players[name].row, games[code].players[name].col, row, col)
 						}
 
 						games[code].players[name].row = row
@@ -256,8 +315,16 @@ func main() {
 				case "ready for next setup":
 					mutex.Lock()
 					games[code].players[name].ready = true
+fmt.Print(games[code].players) // quick debug
 					if everyonesReady(games[code]) {
 						newSetup(games[code])
+					}
+					mutex.Unlock()
+				case "remove tree": // row // col
+					mutex.Lock()
+					for _, p := range games[code].players { // tell non-waiting players 
+						if p.waitingToJoin { continue }
+						p.connChan <- string(rawMsg)
 					}
 					mutex.Unlock()
 				case "start":
@@ -355,6 +422,13 @@ func everyonesFound(g *game) bool {
 	return true
 }
 
+func numberOfWaitingToJoinPlayers(g *game) int {
+	waiting := 0
+	for _, p := range g.players {
+		if p.waitingToJoin { waiting++ }
+	}
+	return waiting
+}
 
 func newSetup(g *game) {
 
@@ -451,8 +525,7 @@ func reportWinnerIfThereIsOne(g *game) bool {
 	if g.multiHiderRound {
 		last := onlyOneHiderLeft(g)
 		if last != "" {
-			for _, p := range g.players { // tell other players. who aren't waiting to join
-				if p.waitingToJoin { continue }
+			for _, p := range g.players {
 				if p.seeker { p.seeker = false }
 				p.connChan <- fmt.Sprintf("winner\n%s\n%s", g.players[last].emoji, last)
 			}
@@ -461,13 +534,46 @@ func reportWinnerIfThereIsOne(g *game) bool {
 		}
 	} else {
 		if everyonesFound(g) {
-			for _, p := range g.players { // tell other players. who aren't waiting to join
-				if p.waitingToJoin { continue }
-				if p.seeker { p.seeker = false } else { p.seeker = true } // preparing for another 2 player game but the next game could be multiHider
+			var seeker, hider *player
+			for _, p := range g.players {
+				if p.seeker { seeker = p }
+				if p.found  { hider  = p }
 				p.connChan <- "round over\n2 player game"
 			}
+			seeker.seeker = false
+			hider.seeker = true
 			return true
 		}
 	}
 	return false
+}
+
+func profilePlayer(p *player) int {
+	switch {
+	case !p.found && !p.waitingToJoin:
+		return active
+	case !p.found &&  p.waitingToJoin:
+		return waiting
+	case  p.found && !p.waitingToJoin:
+		return found
+	}
+	//    p.found &&  p.waitingToJoin:
+	return waitingAndFound
+}
+
+func profilePlayers(g *game) (int, int, int, int) {
+	var actives, waitings, founds, waitingAndFounds int
+	for _, p := range g.players {
+		switch profilePlayer(p) {
+		case active:
+			actives++
+		case waiting:
+			waitings++
+		case found:
+			founds++
+		case waitingAndFound:
+			waitingAndFounds++
+		}
+	}
+	return actives, founds, waitings, waitingAndFounds
 }
