@@ -181,8 +181,8 @@ func main() {
 								mutex.Unlock()
 								break
 							} else {
-								for _, p := range games[code].players { // tell non-waiting players
-									if p.waiting { continue }
+								for n, p := range games[code].players { // tell non-waiting players
+									if p.waiting || n == name { continue }
 									p.connChan <- fmt.Sprintf("found\n%s\n%s\n%d\n%d", games[code].players[occ].emoji, occ, row, col)
 								}
 							}
@@ -455,6 +455,10 @@ func readyMsgs(desc string, code string, name string, firstReadyMsgRcvd *bool, f
 }
 
 func bootNotReadyPlayers(desc string, code string, firstReadyMsgRcvd *bool, cancelBoot *bool, f func()) {
+	if _, exists := games[code]; !exists {
+		return
+	}
+
 	printBootCancels(code)
 	if *cancelBoot {
 		log.Printf("\n%s: bootNotReadyPlayers: cancelled. (%s)\n", code, desc)
